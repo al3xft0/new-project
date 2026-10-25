@@ -37,7 +37,7 @@ struct AppState {
     MiscState   misc;
     Texture     logoLg;
     Texture     logoSm;
-    char        status[160]   = "Feature 2 — ESP";
+    char status[168] = "Feature 2 - ESP";
     EspSystem   esp;
     bool        autoAttach    = true;
 };
