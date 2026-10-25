@@ -1,3 +1,4 @@
+#include "win_pre.h"
 #include "ui.h"
 #include "theme.h"
 #include "imgui.h"
@@ -122,13 +123,6 @@ static void DrawSidebar(AppState& st, ImVec2 origin, float height) {
         ImVec2 tl(logoC.x - sz * 0.5f, logoC.y - sz * 0.5f);
         dl->AddCircleFilled(logoC, sz * 0.62f, IM_COL32(255, 255, 255, (int)(18 * pulse)), 48);
         dl->AddImage((ImTextureID)st.logoSm.srv, tl, ImVec2(tl.x + sz, tl.y + sz));
-    } else {
-        // Fallback brand mark (eye) so the header never looks empty
-        float pulse = Theme::Pulse(1.2f, 0.5f, 1.0f);
-        ImU32 col = IM_COL32(255, 255, 255, (int)(200 * pulse));
-        dl->AddEllipse(logoC, ImVec2(22.f, 12.f), col, 0.f, 0, 2.0f);
-        dl->AddCircleFilled(logoC, 5.f, col, 16);
-        dl->AddCircle(logoC, 9.f, col, 0, 1.5f);
     }
     float tw = ImGui::CalcTextSize("CIPHER").x;
     ImGui::SetCursorScreenPos(ImVec2(a.x + (kSidebarW - tw) * 0.5f, a.y + brandH - 4));
@@ -176,7 +170,7 @@ static void DrawSidebar(AppState& st, ImVec2 origin, float height) {
         ImGui::PopID();
     }
     ImGui::SetCursorScreenPos(ImVec2(a.x + 16.f, b.y - 36.f));
-    ImGui::PushStyleColor(ImGuiCol_Text, Theme::TextDim);
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f, 0.55f, 0.58f, 1.f));
     ImGui::TextUnformatted("INSERT toggles menu");
     ImGui::PopStyleColor();
 }
@@ -190,7 +184,7 @@ static void DrawVisualsPage(AppState& st) {
         if (st.esp.Attach())
             snprintf(st.status, sizeof(st.status), "Attached pid %lu", (unsigned long)st.esp.proc.pid);
         else
-            snprintf(st.status, sizeof(st.status), "Attach failed — start Fortnite");
+            snprintf(st.status, sizeof(st.status), "Attach failed - start Fortnite");
     }
     ImGui::TextDisabled("Players: %d  |  %s", st.esp.frame.playerCount,
                         st.esp.Attached() ? "live" : "idle");
@@ -262,7 +256,7 @@ static void DrawVisualsPage(AppState& st) {
     ImGui::TextDisabled("GWorld / bones / camera are FILL in offsets.h");
     ImGui::TextDisabled("Re-dump after each Fortnite patch.");
     if (ImGui::Button("Copy offsets path", ImVec2(-1, 28)))
-        snprintf(st.status, sizeof(st.status), "Edit src/offsets.h — all RVA in one block");
+        snprintf(st.status, sizeof(st.status), "Edit src/offsets.h - all RVA in one block");
 }
 
 static void DrawCombatPage(AppState& st) {
@@ -276,7 +270,7 @@ static void DrawCombatPage(AppState& st) {
     ImGui::SetNextItemWidth(-1);
     ImGui::Combo("##bone", &st.combat.bone, "Head\0Neck\0Chest\0");
     ImGui::PushStyleColor(ImGuiCol_Text, Theme::TextDim);
-    ImGui::TextWrapped("Combat is Feature 3 — ESP target list is ready.");
+    ImGui::TextWrapped("Combat is Feature 3 - ESP target list is ready.");
     ImGui::PopStyleColor();
 }
 
@@ -290,9 +284,9 @@ static void DrawMiscPage(AppState& st) {
 static void DrawConfigPage(AppState& st) {
     SectionHeader("CONFIG");
     if (ImGui::Button("Save config", ImVec2(-1, 34)))
-        snprintf(st.status, sizeof(st.status), "Config IO — Feature 3");
+        snprintf(st.status, sizeof(st.status), "Config IO - Feature 3");
     if (ImGui::Button("Load config", ImVec2(-1, 34)))
-        snprintf(st.status, sizeof(st.status), "Config IO — Feature 3");
+        snprintf(st.status, sizeof(st.status), "Config IO - Feature 3");
     SectionHeader("ABOUT");
     ImGui::TextUnformatted("Cipher  ·  ESP Feature 2");
     ImGui::TextDisabled("External read-only. Offsets must be current.");
@@ -331,13 +325,9 @@ void UI_Render(AppState& st, ID3D11Device*) {
 
     st.contentAlpha = Theme::Lerp(st.contentAlpha, 1.f, dt * 8.f);
 
-    const float winW = 760.f;
-    const float winH = 520.f;
-        // was: centered floating 760x520 on a huge display
-    // now: fill the host window
+    // Fill host client area (window is sized to menu in main.cpp)
     ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
     ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
-                            ImGuiCond_Always, ImVec2(0.5f, 0.5f);
     ImGui::SetNextWindowBgAlpha(0.97f * st.openAnim);
 
     ImGuiWindowFlags flags =
