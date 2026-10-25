@@ -40,13 +40,7 @@ jobs:
           Write-Host "ROOT=$root"
           Get-Content "$root/CMakeLists.txt"
 
-      - name: Configure (VS 2022 x64)
-        shell: pwsh
-        run: |
-          $root = if (Test-Path "CMakeLists.txt") { "." } elseif (Test-Path "Cipher/CMakeLists.txt") { "Cipher" } else { "." }
-          echo "ROOT=$root" >> $env:GITHUB_ENV
-          if (Test-Path "$root/build") { Remove-Item -Recurse -Force "$root/build" }
-          cmake -B "$root/build" -S "$root" -G "Visual Studio 17 2022" -A x64
+      - cmake -B "$root/build" -S "$root"
 
       - name: Build Release
         shell: pwsh
