@@ -27,9 +27,11 @@ jobs:
           if (-not (Test-Path "external/imgui")) {
             git clone --depth 1 https://github.com/ocornut/imgui.git external/imgui
           }
-          if (Test-Path "Cipher" -and -not (Test-Path "Cipher/external/imgui")) {
-            New-Item -ItemType Directory -Force -Path "Cipher/external" | Out-Null
-            Copy-Item -Recurse -Force "external/imgui" "Cipher/external/imgui"
+          if (Test-Path "Cipher") {
+            if (-not (Test-Path "Cipher/external/imgui")) {
+              New-Item -ItemType Directory -Force -Path "Cipher/external" | Out-Null
+              Copy-Item -Recurse -Force "external/imgui" "Cipher/external/imgui"
+            }
           }
 
       - name: Configure CMake
