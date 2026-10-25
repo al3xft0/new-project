@@ -3,11 +3,18 @@ project(Cipher LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+if(MSVC)
+    add_compile_options(/permissive- /EHsc)
+    add_definitions(-D_CRT_SECURE_NO_WARNINGS -D_USE_MATH_DEFINES)
+endif()
+
 add_executable(Cipher WIN32
     src/main.cpp
     src/ui.cpp
     src/theme.cpp
     src/texture.cpp
+    src/memory.cpp
+    src/esp.cpp
     external/imgui/imgui.cpp
     external/imgui/imgui_draw.cpp
     external/imgui/imgui_tables.cpp
