@@ -24,28 +24,28 @@ jobs:
       - name: Clone Dear ImGui
         shell: pwsh
         run: |
-          if (-not (Test-Path "external/imgui/imgui.h")) {
-            if (Test-Path "Cipher/external/imgui/imgui.h") {
-              # already present under Cipher/
-            } else {
-              $dest = if (Test-Path "Cipher/CMakeLists.txt") { "Cipher/external/imgui" } else { "external/imgui" }
-              git clone --depth 1 https://github.com/ocornut/imgui.git $dest
+          if (-not (Test-Path "external/imgui")) {
+            git clone --depth 1 https://github.com/ocornut/imgui.git external/imgui
+          }
+          if (Test-Path "Cipher") {
+            if (-not (Test-Path "Cipher/external/imgui")) {
+              New-Item -ItemType Directory -Force -Path "Cipher/external" | Out-Null
+              Copy-Item -Recurse -Force "external/imgui" "Cipher/external/imgui"
             }
           }
 
-      - name: Show CMakeLists (debug)
+      - name: Configure CMake
         shell: pwsh
         run: |
           $root = if (Test-Path "CMakeLists.txt") { "." } elseif (Test-Path "Cipher/CMakeLists.txt") { "Cipher" } else { "." }
-          Write-Host "ROOT=$root"
-          Get-Content "$root/CMakeLists.txt"
-
-      - cmake -B "$root/build" -S "$root"
+          echo "ROOT=$root" >> $env:GITHUB_ENV
+          cmake -B "$root/build" -S "$root"
 
       - name: Build Release
         shell: pwsh
         run: |
-          cmake --build "$env:ROOT/build" --config Release --parallel
+          $root = $env:ROOT
+          cmake --build "$root/build" --config Release --parallel
 
       - name: Stage package
         shell: pwsh
@@ -54,14 +54,14 @@ jobs:
           $out = Join-Path $env:GITHUB_WORKSPACE "cipher-out"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           $exe = Get-ChildItem -Path "$root/build" -Recurse -Filter "Cipher.exe" | Select-Object -First 1
-          if (-not $exe) { throw "Cipher.exe not found" }
+          if (-not $exe) { throw "Cipher.exe not found under $root/build" }
           Copy-Item $exe.FullName $out
           $assets = Join-Path $root "assets"
           if (Test-Path $assets) {
             Copy-Item -Recurse -Force $assets (Join-Path $out "assets")
             Copy-Item -Force (Join-Path $assets "*.png") $out -ErrorAction SilentlyContinue
           }
-          Get-ChildItem $out -Recurse | Format-Table Name, Length
+          Get-ChildItem $out -Recurse | Format-Table FullName, Length
 
       - name: Upload Cipher artifact
         uses: actions/upload-artifact@v4
