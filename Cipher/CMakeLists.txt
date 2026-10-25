@@ -5,9 +5,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# -----------------------------------------------------------------------------
 # Dear ImGui — isolated static lib, ZERO project defines (keeps MSVC cmath sane)
-# -----------------------------------------------------------------------------
 add_library(imgui STATIC
     external/imgui/imgui.cpp
     external/imgui/imgui_draw.cpp
@@ -23,12 +21,9 @@ target_include_directories(imgui PUBLIC
 target_link_libraries(imgui PUBLIC d3d11 dxgi d3dcompiler)
 if(MSVC)
   target_compile_options(imgui PRIVATE /W3)
-  # Explicitly avoid /permissive- / FI / weird CRT flags on imgui
 endif()
 
-# -----------------------------------------------------------------------------
 # Cipher app
-# -----------------------------------------------------------------------------
 add_executable(Cipher WIN32
     src/main.cpp
     src/ui.cpp
