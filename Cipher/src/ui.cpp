@@ -122,6 +122,13 @@ static void DrawSidebar(AppState& st, ImVec2 origin, float height) {
         ImVec2 tl(logoC.x - sz * 0.5f, logoC.y - sz * 0.5f);
         dl->AddCircleFilled(logoC, sz * 0.62f, IM_COL32(255, 255, 255, (int)(18 * pulse)), 48);
         dl->AddImage((ImTextureID)st.logoSm.srv, tl, ImVec2(tl.x + sz, tl.y + sz));
+    } else {
+        // Fallback brand mark (eye) so the header never looks empty
+        float pulse = Theme::Pulse(1.2f, 0.5f, 1.0f);
+        ImU32 col = IM_COL32(255, 255, 255, (int)(200 * pulse));
+        dl->AddEllipse(logoC, ImVec2(22.f, 12.f), col, 0.f, 0, 2.0f);
+        dl->AddCircleFilled(logoC, 5.f, col, 16);
+        dl->AddCircle(logoC, 9.f, col, 0, 1.5f);
     }
     float tw = ImGui::CalcTextSize("CIPHER").x;
     ImGui::SetCursorScreenPos(ImVec2(a.x + (kSidebarW - tw) * 0.5f, a.y + brandH - 4));
@@ -326,8 +333,10 @@ void UI_Render(AppState& st, ID3D11Device*) {
 
     const float winW = 760.f;
     const float winH = 520.f;
-    ImGui::SetNextWindowSize(ImVec2(winW, winH), ImGuiCond_Always);
-    ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f),
+        // was: centered floating 760x520 on a huge display
+    // now: fill the host window
+    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
                             ImGuiCond_Always, ImVec2(0.5f, 0.5f));
     ImGui::SetNextWindowBgAlpha(0.97f * st.openAnim);
 
