@@ -335,6 +335,50 @@ void UI_Render(AppState& st, ID3D11Device*) {
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar;
 
     ImGui::Begin("##cipher", nullptr, flags);
+        // Custom window controls (borderless)
+    {
+        const float btn = 28.f;
+        const float pad = 10.f;
+        ImVec2 cMin(wp.x + ws.x - pad - btn * 2.f - 8.f, wp.y + pad);
+        ImGui::SetCursorScreenPos(cMin);
+
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.08f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.14f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.f);
+
+        if (ImGui::Button("##min", ImVec2(btn, btn))) {
+            ShowWindow(GetActiveWindow(), SW_MINIMIZE);
+        }
+        // minimize glyph
+        {
+            ImVec2 a = ImGui::GetItemRectMin();
+            ImVec2 b = ImGui::GetItemRectMax();
+            ImVec2 c((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f);
+            dl->AddLine(ImVec2(c.x - 5.f, c.y), ImVec2(c.x + 5.f, c.y),
+                        IM_COL32(220, 220, 225, 220), 1.5f);
+        }
+
+        ImGui::SameLine(0, 8);
+
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.25f, 0.28f, 0.85f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.95f, 0.30f, 0.32f, 1.f));
+        if (ImGui::Button("##cls", ImVec2(btn, btn))) {
+            PostQuitMessage(0);
+        }
+        {
+            ImVec2 a = ImGui::GetItemRectMin();
+            ImVec2 b = ImGui::GetItemRectMax();
+            ImVec2 c((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f);
+            ImU32 col = IM_COL32(230, 230, 235, 230);
+            dl->AddLine(ImVec2(c.x - 5.f, c.y - 5.f), ImVec2(c.x + 5.f, c.y + 5.f), col, 1.5f);
+            dl->AddLine(ImVec2(c.x + 5.f, c.y - 5.f), ImVec2(c.x - 5.f, c.y + 5.f), col, 1.5f);
+        }
+        ImGui::PopStyleColor(2);
+
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(3);
+    }
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 wp = ImGui::GetWindowPos();
     ImVec2 ws = ImGui::GetWindowSize();
