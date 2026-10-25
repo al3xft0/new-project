@@ -3,11 +3,6 @@ project(Cipher LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-if(MSVC)
-    add_compile_options(/permissive- /EHsc)
-    add_definitions(-D_CRT_SECURE_NO_WARNINGS -D_USE_MATH_DEFINES)
-endif()
-
 add_executable(Cipher WIN32
     src/main.cpp
     src/ui.cpp
@@ -26,3 +21,12 @@ add_executable(Cipher WIN32
 target_include_directories(Cipher PRIVATE src external/imgui external/imgui/backends)
 target_link_libraries(Cipher PRIVATE d3d11 dxgi d3dcompiler dwmapi)
 target_compile_definitions(Cipher PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
+
+# MSVC: keep cmath healthy (Windows.h must not precede <cmath>)
+if(MSVC)
+  target_compile_options(Cipher PRIVATE /W3 /permissive- /Zc:__cplusplus)
+  target_compile_definitions(Cipher PRIVATE _USE_MATH_DEFINES)
+  # Force include order for every TU
+  target_compile_options(Cipher PRIVATE "/FI${CMAKE_CURRENT_SOURCE_DIR}/src/win_pre.h")
+endif()
+
