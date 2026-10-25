@@ -1,3 +1,4 @@
+#include "win_pre.h"
 #include "ui.h"
 #include "theme.h"
 #include "texture.h"
@@ -16,6 +17,10 @@ static ID3D11DeviceContext*    g_ctx = nullptr;
 static IDXGISwapChain*         g_swap = nullptr;
 static ID3D11RenderTargetView* g_rtv = nullptr;
 static bool                    g_running = true;
+
+// Menu pixel size — window client area matches this (no black sea)
+static const int kMenuW = 760;
+static const int kMenuH = 520;
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
@@ -92,19 +97,40 @@ static std::wstring ExeDir() {
     return slash == std::wstring::npos ? L"." : p.substr(0, slash);
 }
 
+static bool TryLoadLogo(ID3D11Device* dev, const std::wstring& dir, const wchar_t* name, Texture& out) {
+    const std::wstring candidates[] = {
+        dir + L"\\" + name,
+        dir + L"\\assets\\" + name,
+        dir + L"\\..\\assets\\" + name,
+        std::wstring(L"assets\\") + name,
+        name,
+    };
+    for (auto& p : candidates) {
+        if (Tex::LoadPNG(dev, p, out))
+            return true;
+    }
+    return false;
+}
+
 int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     WNDCLASSEXW wc{ sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, hi,
                     nullptr, nullptr, nullptr, nullptr, L"CipherUI", nullptr };
     RegisterClassExW(&wc);
 
+    // Size window so *client area* == menu size (account for non-client chrome)
+    RECT rc{ 0, 0, kMenuW, kMenuH };
+    AdjustWindowRect(&rc, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE);
+    int winW = rc.right - rc.left;
+    int winH = rc.bottom - rc.top;
+
     HWND hwnd = CreateWindowW(
         wc.lpszClassName, L"Cipher",
-        WS_OVERLAPPEDWINDOW, 80, 80, 1100, 700,
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        CW_USEDEFAULT, CW_USEDEFAULT, winW, winH,
         nullptr, nullptr, wc.hInstance, nullptr);
 
-    // Dark titlebar when supported
     BOOL dark = TRUE;
-    DwmSetWindowAttribute(hwnd, 20 /*DWMWA_USE_IMMERSIVE_DARK_MODE*/, &dark, sizeof(dark));
+    DwmSetWindowAttribute(hwnd, 20, &dark, sizeof(dark));
 
     if (!CreateDevice(hwnd)) {
         CleanupDevice();
@@ -127,21 +153,16 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     ImGui_ImplDX11_Init(g_device, g_ctx);
 
     AppState st{};
+    std::snprintf(st.status, sizeof(st.status), "Feature 2 — ESP");
+
     std::wstring dir = ExeDir();
-    // Prefer assets next to exe; fall back to ../assets for dev runs
-    auto tryLoad = [&](const wchar_t* name, Texture& t) {
-        std::wstring p1 = dir + L"\\" + name;
-        std::wstring p2 = dir + L"\\assets\\" + name;
-        std::wstring p3 = dir + L"\\..\\assets\\" + name;
-        if (Tex::LoadPNG(g_device, p1, t)) return;
-        if (Tex::LoadPNG(g_device, p2, t)) return;
-        Tex::LoadPNG(g_device, p3, t);
-    };
-    tryLoad(L"logo_sm.png", st.logoSm);
-    tryLoad(L"logo_lg.png", st.logoLg);
-    // if only one loaded, mirror
+    TryLoadLogo(g_device, dir, L"logo_sm.png", st.logoSm);
+    TryLoadLogo(g_device, dir, L"logo_lg.png", st.logoLg);
     if (!st.logoSm.ok() && st.logoLg.ok()) st.logoSm = st.logoLg;
     if (!st.logoLg.ok() && st.logoSm.ok()) st.logoLg = st.logoSm;
+
+    if (!st.logoSm.ok())
+        std::snprintf(st.status, sizeof(st.status), "ESP — put logo_sm.png next to exe");
 
     g_running = true;
     while (g_running) {
@@ -157,17 +178,11 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        // full-window dim backdrop when menu open
-        if (st.openAnim > 0.01f) {
-            ImGui::GetBackgroundDrawList()->AddRectFilled(
-                ImVec2(0, 0), io.DisplaySize,
-                IM_COL32(0, 0, 0, (int)(140 * st.openAnim)));
-        }
-
         UI_Render(st, g_device);
 
         ImGui::Render();
-        const float clear[4] = { 0.03f, 0.03f, 0.035f, 1.f };
+        // Match panel deep bg — no pure black “void”
+        const float clear[4] = { 0.04f, 0.04f, 0.05f, 1.f };
         g_ctx->OMSetRenderTargets(1, &g_rtv, nullptr);
         g_ctx->ClearRenderTargetView(g_rtv, clear);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
