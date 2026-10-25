@@ -1,4 +1,3 @@
-// src/win_pre.h
 #pragma once
 #ifndef NOMINMAX
 #define NOMINMAX
