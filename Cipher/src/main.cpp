@@ -20,9 +20,13 @@ static ID3D11DeviceContext*    g_ctx = nullptr;
 static IDXGISwapChain*         g_swap = nullptr;
 static ID3D11RenderTargetView* g_rtv = nullptr;
 static bool                    g_running = true;
+static HWND                    g_hwnd = nullptr;
 
+// Menu size = window size (no OS chrome)
 static const int kMenuW = 760;
 static const int kMenuH = 520;
+static const int kDragH = 64;      // top strip height for dragging
+static const int kSidebarW = 196;  // match UI sidebar — whole sidebar is drag/hit zone helper
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
@@ -76,11 +80,32 @@ static void CleanupDevice() {
 static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
         return true;
+
     switch (msg) {
+    case WM_NCHITTEST: {
+        // Let ImGui controls keep clicks; empty chrome regions drag the window
+        LRESULT hit = DefWindowProcW(hWnd, msg, wParam, lParam);
+        if (hit != HTCLIENT)
+            return hit;
+
+        POINT pt{ (SHORT)LOWORD(lParam), (SHORT)HIWORD(lParam) };
+        ScreenToClient(hWnd, &pt);
+
+        // Top-right reserve for close / min buttons drawn by ImGui (~80px)
+        if (pt.y < kDragH && pt.x > kMenuW - 90)
+            return HTCLIENT;
+
+        // Top header strip + left sidebar brand area → draggable
+        if (pt.y < kDragH || pt.x < kSidebarW)
+            return HTCAPTION;
+
+        return HTCLIENT;
+    }
     case WM_SIZE:
         if (g_device && wParam != SIZE_MINIMIZED) {
             CleanupRT();
-            g_swap->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam), DXGI_FORMAT_UNKNOWN, 0);
+            g_swap->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam),
+                                  DXGI_FORMAT_UNKNOWN, 0);
             CreateRT();
         }
         return 0;
@@ -96,27 +121,41 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
                     nullptr, nullptr, nullptr, nullptr, L"CipherUI", nullptr };
     RegisterClassExW(&wc);
 
-    RECT rc{ 0, 0, kMenuW, kMenuH };
-    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
-    AdjustWindowRect(&rc, style, FALSE);
+    // Borderless layered-looking popup; size == menu
+    DWORD style = WS_POPUP;
+    DWORD exStyle = WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
 
-    HWND hwnd = CreateWindowW(
-        wc.lpszClassName, L"Cipher", style,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        rc.right - rc.left, rc.bottom - rc.top,
+    int screenW = GetSystemMetrics(SM_CXSCREEN);
+    int screenH = GetSystemMetrics(SM_CYSCREEN);
+    int posX = (screenW - kMenuW) / 2;
+    int posY = (screenH - kMenuH) / 2;
+
+    g_hwnd = CreateWindowExW(
+        exStyle, wc.lpszClassName, L"Cipher",
+        style,
+        posX, posY, kMenuW, kMenuH,
         nullptr, nullptr, wc.hInstance, nullptr);
 
+    // Rounded corners on Win11 (ignored on older)
+    const DWORD DWMWCP_ROUND = 2;
+    DwmSetWindowAttribute(g_hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */,
+                          (void*)&DWMWCP_ROUND, sizeof(DWMWCP_ROUND));
     BOOL dark = TRUE;
-    DwmSetWindowAttribute(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof(dark));
+    DwmSetWindowAttribute(g_hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */,
+                          &dark, sizeof(dark));
 
-    if (!CreateDevice(hwnd)) {
+    // Subtle window shadow
+    MARGINS shadow{ 1, 1, 1, 1 };
+    DwmExtendFrameIntoClientArea(g_hwnd, &shadow);
+
+    if (!CreateDevice(g_hwnd)) {
         CleanupDevice();
         UnregisterClassW(wc.lpszClassName, wc.hInstance);
         return 1;
     }
 
-    ShowWindow(hwnd, SW_SHOWDEFAULT);
-    UpdateWindow(hwnd);
+    ShowWindow(g_hwnd, SW_SHOWDEFAULT);
+    UpdateWindow(g_hwnd);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -126,13 +165,12 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     Theme::Apply();
     UI_InitFonts();
 
-    ImGui_ImplWin32_Init(hwnd);
+    ImGui_ImplWin32_Init(g_hwnd);
     ImGui_ImplDX11_Init(g_device, g_ctx);
 
     AppState st{};
     std::snprintf(st.status, sizeof(st.status), "Feature 2 - ESP");
 
-    // Logos baked into the binary — no external PNG required
     Tex::LoadPNGMemory(g_device, kLogoSmPng, kLogoSmPng_len, st.logoSm);
     Tex::LoadPNGMemory(g_device, kLogoLgPng, kLogoLgPng_len, st.logoLg);
     if (!st.logoSm.ok() && st.logoLg.ok()) st.logoSm = st.logoLg;
@@ -168,7 +206,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     ImGui_ImplWin32_Shutdown();
     ImGui::DestroyContext();
     CleanupDevice();
-    DestroyWindow(hwnd);
+    DestroyWindow(g_hwnd);
     UnregisterClassW(wc.lpszClassName, wc.hInstance);
     return 0;
 }
