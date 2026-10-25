@@ -337,7 +337,7 @@ void UI_Render(AppState& st, ID3D11Device*) {
     // now: fill the host window
     ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
     ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
-                            ImGuiCond_Always, ImVec2(0.5f, 0.5f));
+                            ImGuiCond_Always, ImVec2(0.5f, 0.5f);
     ImGui::SetNextWindowBgAlpha(0.97f * st.openAnim);
 
     ImGuiWindowFlags flags =
