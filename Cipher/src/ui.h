@@ -1,42 +1,14 @@
 #pragma once
 #include "texture.h"
+#include "esp.h"
 #include <string>
-#include <vector>
-#include <cmath>
 
 enum class TabId {
     Combat = 0,
-    Visuals,   // ESP lives here first
+    Visuals,
     Misc,
     Config,
     COUNT
-};
-
-struct Toggle {
-    const char* label;
-    bool*       value;
-    const char* hint = nullptr;
-};
-
-struct SliderF {
-    const char* label;
-    float*      value;
-    float       vmin, vmax;
-    const char* fmt = "%.1f";
-};
-
-// Feature state — only ESP wired as sections for now; rest placeholders
-struct EspState {
-    bool  enabled       = true;
-    bool  box           = true;
-    bool  skeleton      = false;
-    bool  name          = true;
-    bool  distance      = true;
-    bool  teamCheck     = true;
-    bool  showDowned    = true;
-    float maxDistance   = 300.f;
-    float boxThickness  = 1.5f;
-    int   boxStyle      = 0; // 0 full, 1 corner
 };
 
 struct CombatState {
@@ -45,28 +17,29 @@ struct CombatState {
     bool  visibleCheck  = true;
     float fov           = 12.f;
     float smooth        = 6.f;
-    int   bone          = 0; // 0 head, 1 neck, 2 chest
+    int   bone          = 0;
 };
 
 struct MiscState {
     bool  streamproof   = false;
     bool  vsync         = true;
     bool  watermark     = true;
-    int   menuKey       = 0x2D; // VK_INSERT
+    int   menuKey       = 0x2D;
 };
 
 struct AppState {
     TabId       tab           = TabId::Visuals;
-    float       tabAnim[4]    = {0,1,0,0}; // hover/active blend per tab
+    float       tabAnim[4]    = {0,1,0,0};
     float       contentAlpha  = 0.f;
     float       openAnim      = 0.f;
     bool        menuOpen      = true;
-    EspState    esp;
     CombatState combat;
     MiscState   misc;
     Texture     logoLg;
     Texture     logoSm;
-    char        status[128]   = "UI ready — ESP next";
+    char        status[160]   = "Feature 2 — ESP";
+    EspSystem   esp;
+    bool        autoAttach    = true;
 };
 
 void UI_InitFonts();
