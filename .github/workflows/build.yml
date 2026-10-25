@@ -28,7 +28,7 @@ jobs:
             git clone --depth 1 https://github.com/ocornut/imgui.git external/imgui
           }
 
-            - name: Configure CMake
+      - name: Configure CMake
         working-directory: ${{ github.workspace }}
         shell: pwsh
         run: |
