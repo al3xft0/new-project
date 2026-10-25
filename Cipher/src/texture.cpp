@@ -1,20 +1,10 @@
-#include <Windows.h>
+#include "win_pre.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 #include "texture.h"
 #include <vector>
 
-bool Tex::LoadPNG(ID3D11Device* device, const std::wstring& path, Texture& out) {
-    // Wide path → UTF-8 for stbi
-    int n = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, nullptr, 0, nullptr, nullptr);
-    std::string u8(n, 0);
-    WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, u8.data(), n, nullptr, nullptr);
-    if (!u8.empty() && u8.back() == '\0') u8.pop_back();
-
-    int w, h, ch;
-    unsigned char* data = stbi_load(u8.c_str(), &w, &h, &ch, 4);
-    if (!data) return false;
-
+static bool CreateSrvFromRGBA(ID3D11Device* device, unsigned char* data, int w, int h, Texture& out) {
     D3D11_TEXTURE2D_DESC desc{};
     desc.Width = w;
     desc.Height = h;
@@ -31,7 +21,6 @@ bool Tex::LoadPNG(ID3D11Device* device, const std::wstring& path, Texture& out) 
 
     ID3D11Texture2D* tex = nullptr;
     HRESULT hr = device->CreateTexture2D(&desc, &sub, &tex);
-    stbi_image_free(data);
     if (FAILED(hr) || !tex) return false;
 
     D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
@@ -41,10 +30,32 @@ bool Tex::LoadPNG(ID3D11Device* device, const std::wstring& path, Texture& out) 
     hr = device->CreateShaderResourceView(tex, &srvDesc, &out.srv);
     tex->Release();
     if (FAILED(hr)) return false;
-
     out.w = w;
     out.h = h;
     return true;
+}
+
+bool Tex::LoadPNGMemory(ID3D11Device* device, const unsigned char* data, size_t size, Texture& out) {
+    int w = 0, h = 0, ch = 0;
+    unsigned char* rgba = stbi_load_from_memory(data, (int)size, &w, &h, &ch, 4);
+    if (!rgba) return false;
+    bool ok = CreateSrvFromRGBA(device, rgba, w, h, out);
+    stbi_image_free(rgba);
+    return ok;
+}
+
+bool Tex::LoadPNG(ID3D11Device* device, const std::wstring& path, Texture& out) {
+    int n = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    std::string u8(n, 0);
+    WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, u8.data(), n, nullptr, nullptr);
+    if (!u8.empty() && u8.back() == '\0') u8.pop_back();
+
+    int w, h, ch;
+    unsigned char* data = stbi_load(u8.c_str(), &w, &h, &ch, 4);
+    if (!data) return false;
+    bool ok = CreateSrvFromRGBA(device, data, w, h, out);
+    stbi_image_free(data);
+    return ok;
 }
 
 void Tex::Release(Texture& t) {
