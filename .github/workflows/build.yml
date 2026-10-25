@@ -21,7 +21,7 @@ jobs:
       - name: Setup CMake
         uses: lukka/get-cmake@latest
 
-            - name: Clone Dear ImGui
+      - name: Clone Dear ImGui
         shell: pwsh
         run: |
           if (-not (Test-Path "external/imgui")) {
