@@ -1,39 +1,35 @@
-#pragma once
-#include "win_pre.h"
-#include <Windows.h>
-#include <TlHelp32.h>
-#include <cstdint>
-#include <optional>
-#include <string>
-#include <vector>
+cmake_minimum_required(VERSION 3.20)
+project(Cipher LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-struct GameProcess {
-    DWORD   pid = 0;
-    HANDLE  handle = nullptr;
-    uintptr_t base = 0;
-    std::wstring name;
-};
+add_executable(Cipher WIN32
+    src/main.cpp
+    src/ui.cpp
+    src/theme.cpp
+    src/texture.cpp
+    src/memory.cpp
+    src/esp.cpp
+    external/imgui/imgui.cpp
+    external/imgui/imgui_draw.cpp
+    external/imgui/imgui_tables.cpp
+    external/imgui/imgui_widgets.cpp
+    external/imgui/backends/imgui_impl_win32.cpp
+    external/imgui/backends/imgui_impl_dx11.cpp
+)
 
-namespace Mem {
-    std::optional<GameProcess> Attach(const wchar_t* exeName = L"FortniteClient-Win64-Shipping.exe");
-    void Close(GameProcess& p);
-    bool IsValid(const GameProcess& p);
+target_include_directories(Cipher PRIVATE src external/imgui external/imgui/backends)
+target_link_libraries(Cipher PRIVATE d3d11 dxgi d3dcompiler dwmapi)
 
-    bool ReadRaw(HANDLE h, uintptr_t addr, void* buf, size_t size);
-    bool WriteRaw(HANDLE h, uintptr_t addr, const void* buf, size_t size);
+target_compile_definitions(Cipher PRIVATE
+    UNICODE
+    _UNICODE
+    WIN32_LEAN_AND_MEAN
+    NOMINMAX
+    _CRT_SECURE_NO_WARNINGS
+    _USE_MATH_DEFINES
+)
 
-    template<typename T>
-    bool Read(HANDLE h, uintptr_t addr, T& out) {
-        return ReadRaw(h, addr, &out, sizeof(T));
-    }
-
-    template<typename T>
-    T Read(HANDLE h, uintptr_t addr) {
-        T v{};
-        ReadRaw(h, addr, &v, sizeof(T));
-        return v;
-    }
-
-    uintptr_t ReadPtr(HANDLE h, uintptr_t addr);
-    std::optional<uintptr_t> PatternScan(HANDLE h, uintptr_t start, size_t size, const char* pattern);
-}
+if(MSVC)
+  target_compile_options(Cipher PRIVATE /W3 /permissive-)
+endif()
