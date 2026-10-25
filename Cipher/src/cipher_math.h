@@ -25,7 +25,6 @@ struct FQuat {
     float X = 0, Y = 0, Z = 0, W = 1;
 };
 
-// Unreal FTransform-ish
 struct FTransform {
     FQuat Rotation;
     FVector Translation;
@@ -38,15 +37,14 @@ inline FMatrix QuaternionToMatrix(const FQuat& q) {
     float xx = q.X * x2, yy = q.Y * y2, zz = q.Z * z2;
     float xy = q.X * y2, xz = q.X * z2, yz = q.Y * z2;
     float wx = q.W * x2, wy = q.W * y2, wz = q.W * z2;
-    m.M[0][0] = 1.f - (yy + zz); m.M[0][1] = xy + wz;         m.M[0][2] = xz - wy;         m.M[0][3] = 0;
-    m.M[1][0] = xy - wz;         m.M[1][1] = 1.f - (xx + zz); m.M[1][2] = yz + wx;         m.M[1][3] = 0;
-    m.M[2][0] = xz + wy;         m.M[2][1] = yz - wx;         m.M[2][2] = 1.f - (xx + yy); m.M[2][3] = 0;
+    m.M[0][0] = 1.f - (yy + zz); m.M[0][1] = xy + wz;         m.M[0][2] = xz - wy;
+    m.M[1][0] = xy - wz;         m.M[1][1] = 1.f - (xx + zz); m.M[1][2] = yz + wx;
+    m.M[2][0] = xz + wy;         m.M[2][1] = yz - wx;         m.M[2][2] = 1.f - (xx + yy);
     m.M[3][0] = 0; m.M[3][1] = 0; m.M[3][2] = 0; m.M[3][3] = 1;
     return m;
 }
 
 inline FVector TransformPoint(const FTransform& t, const FVector& p) {
-    // scale → rotate → translate (simplified)
     FVector s{ p.X * t.Scale3D.X, p.Y * t.Scale3D.Y, p.Z * t.Scale3D.Z };
     FMatrix r = QuaternionToMatrix(t.Rotation);
     FVector o;
