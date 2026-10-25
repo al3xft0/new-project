@@ -1,5 +1,5 @@
 #pragma once
-#include "math.h"
+#include "cipher_math.h"
 #include "memory.h"
 #include "offsets.h"
 #include "imgui.h"
