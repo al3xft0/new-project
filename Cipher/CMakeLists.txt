@@ -5,7 +5,12 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Dear ImGui — isolated static lib, ZERO project defines (keeps MSVC cmath sane)
+# Static MSVC runtime → no MSVCP140.dll / VCRUNTIME140.dll needed
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+# Dear ImGui — isolated static lib
 add_library(imgui STATIC
     external/imgui/imgui.cpp
     external/imgui/imgui_draw.cpp
@@ -21,6 +26,8 @@ target_include_directories(imgui PUBLIC
 target_link_libraries(imgui PUBLIC d3d11 dxgi d3dcompiler)
 if(MSVC)
   target_compile_options(imgui PRIVATE /W3)
+  set_property(TARGET imgui PROPERTY
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
 # Cipher app
@@ -45,4 +52,6 @@ target_compile_definitions(Cipher PRIVATE
 
 if(MSVC)
   target_compile_options(Cipher PRIVATE /W3)
+  set_property(TARGET Cipher PROPERTY
+    MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
