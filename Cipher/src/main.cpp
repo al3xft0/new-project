@@ -2,12 +2,15 @@
 #include "ui.h"
 #include "theme.h"
 #include "texture.h"
+#include "embed_logo_sm.h"
+#include "embed_logo_lg.h"
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
 #include <d3d11.h>
 #include <tchar.h>
 #include <string>
+#include <cstdio>
 #include <dwmapi.h>
 
 #pragma comment(lib, "dwmapi.lib")
@@ -18,7 +21,6 @@ static IDXGISwapChain*         g_swap = nullptr;
 static ID3D11RenderTargetView* g_rtv = nullptr;
 static bool                    g_running = true;
 
-// Menu pixel size — window client area matches this (no black sea)
 static const int kMenuW = 760;
 static const int kMenuH = 520;
 
@@ -89,48 +91,23 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
     return DefWindowProcW(hWnd, msg, wParam, lParam);
 }
 
-static std::wstring ExeDir() {
-    wchar_t buf[MAX_PATH]{};
-    GetModuleFileNameW(nullptr, buf, MAX_PATH);
-    std::wstring p = buf;
-    size_t slash = p.find_last_of(L"\\/");
-    return slash == std::wstring::npos ? L"." : p.substr(0, slash);
-}
-
-static bool TryLoadLogo(ID3D11Device* dev, const std::wstring& dir, const wchar_t* name, Texture& out) {
-    const std::wstring candidates[] = {
-        dir + L"\\" + name,
-        dir + L"\\assets\\" + name,
-        dir + L"\\..\\assets\\" + name,
-        std::wstring(L"assets\\") + name,
-        name,
-    };
-    for (auto& p : candidates) {
-        if (Tex::LoadPNG(dev, p, out))
-            return true;
-    }
-    return false;
-}
-
 int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     WNDCLASSEXW wc{ sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, hi,
                     nullptr, nullptr, nullptr, nullptr, L"CipherUI", nullptr };
     RegisterClassExW(&wc);
 
-    // Size window so *client area* == menu size (account for non-client chrome)
     RECT rc{ 0, 0, kMenuW, kMenuH };
-    AdjustWindowRect(&rc, WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX, FALSE);
-    int winW = rc.right - rc.left;
-    int winH = rc.bottom - rc.top;
+    DWORD style = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX;
+    AdjustWindowRect(&rc, style, FALSE);
 
     HWND hwnd = CreateWindowW(
-        wc.lpszClassName, L"Cipher",
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-        CW_USEDEFAULT, CW_USEDEFAULT, winW, winH,
+        wc.lpszClassName, L"Cipher", style,
+        CW_USEDEFAULT, CW_USEDEFAULT,
+        rc.right - rc.left, rc.bottom - rc.top,
         nullptr, nullptr, wc.hInstance, nullptr);
 
     BOOL dark = TRUE;
-    DwmSetWindowAttribute(hwnd, 20, &dark, sizeof(dark));
+    DwmSetWindowAttribute(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, &dark, sizeof(dark));
 
     if (!CreateDevice(hwnd)) {
         CleanupDevice();
@@ -153,16 +130,13 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     ImGui_ImplDX11_Init(g_device, g_ctx);
 
     AppState st{};
-    std::snprintf(st.status, sizeof(st.status), "Feature 2 — ESP");
+    std::snprintf(st.status, sizeof(st.status), "Feature 2 - ESP");
 
-    std::wstring dir = ExeDir();
-    TryLoadLogo(g_device, dir, L"logo_sm.png", st.logoSm);
-    TryLoadLogo(g_device, dir, L"logo_lg.png", st.logoLg);
+    // Logos baked into the binary — no external PNG required
+    Tex::LoadPNGMemory(g_device, kLogoSmPng, kLogoSmPng_len, st.logoSm);
+    Tex::LoadPNGMemory(g_device, kLogoLgPng, kLogoLgPng_len, st.logoLg);
     if (!st.logoSm.ok() && st.logoLg.ok()) st.logoSm = st.logoLg;
     if (!st.logoLg.ok() && st.logoSm.ok()) st.logoLg = st.logoSm;
-
-    if (!st.logoSm.ok())
-        std::snprintf(st.status, sizeof(st.status), "ESP — put logo_sm.png next to exe");
 
     g_running = true;
     while (g_running) {
@@ -181,7 +155,6 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
         UI_Render(st, g_device);
 
         ImGui::Render();
-        // Match panel deep bg — no pure black “void”
         const float clear[4] = { 0.04f, 0.04f, 0.05f, 1.f };
         g_ctx->OMSetRenderTargets(1, &g_rtv, nullptr);
         g_ctx->ClearRenderTargetView(g_rtv, clear);
