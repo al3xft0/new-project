@@ -337,6 +337,9 @@ void UI_Render(AppState& st, ID3D11Device*) {
     ImGui::Begin("##cipher", nullptr, flags);
         // Custom window controls (borderless)
     {
+        ImVec2 wp = ImGui::GetWindowPos();
+        ImVec2 ws = ImGui::GetWindowSize();
+        ImDrawList* dl = ImGui::GetWindowDrawList();
         const float btn = 28.f;
         const float pad = 10.f;
         ImVec2 cMin(wp.x + ws.x - pad - btn * 2.f - 8.f, wp.y + pad);
