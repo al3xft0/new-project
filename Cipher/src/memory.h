@@ -1,4 +1,5 @@
 #pragma once
+#include "win_pre.h"
 #include <Windows.h>
 #include <TlHelp32.h>
 #include <cstdint>
