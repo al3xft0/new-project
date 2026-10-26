@@ -1,7 +1,9 @@
 #pragma once
 #include "texture.h"
 #include "esp.h"
+#include "aimbot.h"
 #include <string>
+#include <d3d11.h>
 
 enum class TabId {
     Combat = 0,
@@ -11,36 +13,26 @@ enum class TabId {
     COUNT
 };
 
-struct CombatState {
-    bool  aimbot        = false;
-    bool  silent        = false;
-    bool  visibleCheck  = true;
-    float fov           = 12.f;
-    float smooth        = 6.f;
-    int   bone          = 0;
-};
-
 struct MiscState {
-    bool  streamproof   = false;
-    bool  vsync         = true;
-    bool  watermark     = true;
-    int   menuKey       = 0x2D;
+    bool streamproof = false;
+    bool vsync       = true;
+    bool watermark   = true;
 };
 
 struct AppState {
-    TabId       tab           = TabId::Visuals;
-    float       tabAnim[4]    = {0,1,0,0};
-    float       contentAlpha  = 0.f;
-    float       openAnim      = 0.f;
-    bool        menuOpen      = true;
-    CombatState combat;
+    TabId       tab          = TabId::Visuals;
+    float       tabAnim[4]   = { 0, 1, 0, 0 };
+    float       contentAlpha = 0.f;
+    float       openAnim     = 0.f;
+    bool        menuOpen     = true;
+    bool        autoAttach   = true;
     MiscState   misc;
     Texture     logoLg;
     Texture     logoSm;
-    char status[168] = "Feature 2 - ESP";
+    char        status[160]  = "Feature 2 - ESP";
     EspSystem   esp;
-    bool        autoAttach    = true;
+    Aimbot      aim;
 };
 
 void UI_InitFonts();
-void UI_Render(AppState& st, ID3D11Device* device);
+void UI_Render(AppState& st, ID3D11Device* device, HWND hwnd);
