@@ -1,72 +1,44 @@
 #pragma once
 #include <cstdint>
 
-// Cipher — Unreal / Fortnite-style external offsets
-// All values are FILL placeholders. Re-dump after every client patch.
-// Layout matches common GWorld → Level → Actors / camera chains.
+namespace Off {
+    // Globals (from your GWorld.hpp / Offsets.hpp)
+    constexpr uint64_t GWorld            = 0x1B096DE8;
+    constexpr uint64_t GObjectsChunks    = 0x1B028040;
+    constexpr uint64_t GObjectsNum       = 0x1B028054;
+    constexpr uint64_t GNames            = 0x1AF4CDC0;
 
-namespace off {
-    // Globals (image base + RVA)
-    inline uintptr_t GWorld              = 0; // FILL
-    inline uintptr_t GNames              = 0; // FILL
-    inline uintptr_t GObjects            = 0; // FILL
-    inline uintptr_t ViewMatrix          = 0; // FILL optional direct matrix
+    // World
+    constexpr uint64_t World_GameState           = 0x1D0;
+    constexpr uint64_t World_OwningGameInstance  = 0x248;
+    constexpr uint64_t World_PersistentLevel     = 0x40;
 
-    // UWorld
-    inline uintptr_t PersistentLevel     = 0x30;  // FILL
-    inline uintptr_t GameInstance        = 0x1B8; // FILL
-    inline uintptr_t GameState           = 0x158; // FILL
+    // GameInstance
+    constexpr uint64_t GameInstance_LocalPlayers = 0x38;
 
-    // ULevel
-    inline uintptr_t Actors              = 0x98;  // FILL TArray
-    inline uintptr_t ActorsCount         = 0xA0;  // FILL
+    // LocalPlayer → PlayerController (standard)
+    constexpr uint64_t LocalPlayer_PlayerController = 0x30;
 
-    // GameInstance → LocalPlayers
-    inline uintptr_t LocalPlayers        = 0x38;  // FILL
-    inline uintptr_t PlayerController    = 0x30;  // FILL ULocalPlayer
-
-    // APlayerController
-    inline uintptr_t AcknowledgedPawn    = 0x330; // FILL
-    inline uintptr_t PlayerCameraManager = 0x340; // FILL
+    // PlayerController
+    constexpr uint64_t PlayerController_AcknowledgedPawn   = 0x350; // verify if needed
+    constexpr uint64_t PlayerController_PlayerCameraManager = 0x360;
 
     // Camera
-    inline uintptr_t CameraCache         = 0x1AF0; // FILL POV
-    inline uintptr_t CameraLocation      = 0x0;    // relative inside POV FILL
-    inline uintptr_t CameraRotation      = 0xC;    // FILL
-    inline uintptr_t CameraFOV           = 0x18;   // FILL
+    constexpr uint64_t CameraManager_CameraCachePrivate = 0x1510;
+    constexpr uint64_t CameraCache_POV                  = 0x10;
 
-    // AActor / Pawn
-    inline uintptr_t RootComponent       = 0x190; // FILL
-    inline uintptr_t RelativeLocation    = 0x128; // FILL USceneComponent
-    inline uintptr_t Mesh                = 0x310; // FILL
-    inline uintptr_t PlayerState         = 0x2A8; // FILL
-    inline uintptr_t TeamIndex           = 0x10E8; // FILL on PlayerState
-    inline uintptr_t PawnPrivate         = 0x300; // FILL PlayerState→Pawn
-    inline uintptr_t bIsDying            = 0x728; // FILL
-    inline uintptr_t bIsDBNO             = 0x802; // FILL downed
+    // GameState
+    constexpr uint64_t GameState_PlayerArray = 0x2C0; // common Athena; adjust if your Offsets.hpp differs
 
-    // Skeletal mesh
-    inline uintptr_t BoneArray           = 0x5E8; // FILL
-    inline uintptr_t BoneArrayCached     = 0x5F8; // FILL alternate
-    inline uintptr_t ComponentToWorld    = 0x1C0; // FILL
+    // Actor
+    constexpr uint64_t Actor_RootComponent = 0x1B0; // from earlier SDK paste
 
-    // Bone indices (Fortnite-ish defaults — verify)
-    namespace bone {
-        inline int Head     = 110;
-        inline int Neck     = 67;
-        inline int Chest    = 66;
-        inline int Pelvis   = 2;
-        inline int LShoulder= 9;
-        inline int LElbow   = 10;
-        inline int LHand    = 11;
-        inline int RShoulder= 38;
-        inline int RElbow   = 39;
-        inline int RHand    = 40;
-        inline int LHip     = 71;
-        inline int LKnee    = 72;
-        inline int LFoot    = 73;
-        inline int RHip     = 78;
-        inline int RKnee    = 79;
-        inline int RFoot    = 80;
-    }
+    // SceneComponent
+    constexpr uint64_t SceneComponent_RelativeLocation = 0x140;
+    constexpr uint64_t SceneComponent_ComponentToWorld = 0x1E0;
+
+    // PlayerState
+    constexpr uint64_t PlayerState_PawnPrivate      = 0x320;
+    constexpr uint64_t PlayerState_PlayerNamePrivate = 0xA00;
+    constexpr uint64_t PlayerState_TeamIndex        = 0x10E8;
 }
