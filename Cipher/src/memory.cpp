@@ -22,7 +22,7 @@ std::optional<GameProcess> Mem::Attach(const wchar_t* exeName) {
     gp.pid = pid;
     gp.name = exeName;
     gp.handle = OpenProcess(
-        PROCESS_VM_READ | PROCESS_QUERY_INFORMATION,
+        PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION,
         FALSE, pid);
     if (!gp.handle) return std::nullopt;
 

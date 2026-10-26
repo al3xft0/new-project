@@ -19,6 +19,7 @@ struct EspColors {
     float headDot[4]        = { 1.f, 1.f, 1.f, 1.00f };
     float filledBox[4]      = { 1.f, 1.f, 1.f, 0.08f };
     float radar[4]          = { 1.f, 1.f, 1.f, 0.80f };
+    float chams[4]           = { 1.f, 1.f, 1.f, 0.22f };
 };
 
 enum class BoxStyle : int { Full = 0, Corner = 1, Filled = 2 };
@@ -28,7 +29,7 @@ enum class RadarPos : int { TopLeft = 0, TopRight = 1, BottomLeft = 2, BottomRig
 struct EspConfig {
     bool enabled = true, box = true, skeleton = true, name = true, distance = true;
     bool headDot = true, snaplines = false, teamCheck = true, showDowned = true;
-    bool showSelf = false, visibleOnly = false, radar = false, outline = true, healthBar = true;
+    bool showSelf = false, visibleOnly = false, radar = false, outline = true, healthBar = true, chams = false;
     BoxStyle boxStyle = BoxStyle::Corner;
     SnapPos  snapPos  = SnapPos::Bottom;
     RadarPos radarPos = RadarPos::TopRight;

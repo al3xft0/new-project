@@ -47,49 +47,49 @@ bool EspSystem::Attached() const {
 
 bool EspSystem::ReadViewMatrix() {
     // Prefer explicit ViewMatrix RVA if set; else build from camera cache
-    if (Off::ViewMatrix && proc.base) {
-        return Mem::ReadRaw(proc.handle, proc.base + Off::ViewMatrix, &viewProj_, sizeof(viewProj_));
+    if (off::ViewMatrix && proc.base) {
+        return Mem::ReadRaw(proc.handle, proc.base + off::ViewMatrix, &viewProj_, sizeof(viewProj_));
     }
     // Camera chain: GWorld → GameInstance → LocalPlayers[0] → PlayerController → CameraManager → Cache
-    if (!Off::GWorld || !proc.base) return false;
-    uintptr_t world = Mem::ReadPtr(proc.handle, proc.base + Off::GWorld);
+    if (!off::GWorld || !proc.base) return false;
+    uintptr_t world = Mem::ReadPtr(proc.handle, proc.base + off::GWorld);
     if (!world) return false;
-    uintptr_t gi = Mem::ReadPtr(proc.handle, world + Off::GameInstance);
+    uintptr_t gi = Mem::ReadPtr(proc.handle, world + off::GameInstance);
     if (!gi) return false;
-    uintptr_t lpArr = Mem::ReadPtr(proc.handle, gi + Off::LocalPlayers);
+    uintptr_t lpArr = Mem::ReadPtr(proc.handle, gi + off::LocalPlayers);
     if (!lpArr) return false;
     uintptr_t lp = Mem::ReadPtr(proc.handle, lpArr); // TArray data[0]
     if (!lp) return false;
-    uintptr_t pc = Mem::ReadPtr(proc.handle, lp + Off::PlayerController);
+    uintptr_t pc = Mem::ReadPtr(proc.handle, lp + off::PlayerController);
     if (!pc) return false;
-    localPawn_ = Mem::ReadPtr(proc.handle, pc + Off::AcknowledgedPawn);
-    uintptr_t cam = Mem::ReadPtr(proc.handle, pc + Off::PlayerCameraManager);
+    localPawn_ = Mem::ReadPtr(proc.handle, pc + off::AcknowledgedPawn);
+    uintptr_t cam = Mem::ReadPtr(proc.handle, pc + off::PlayerCameraManager);
     if (!cam) return false;
 
     // Read POV location / rotation / FOV — layout FILL
-    FVector loc = Mem::Read<FVector>(proc.handle, cam + Off::CameraCache + Off::CameraLocation);
+    FVector loc = Mem::Read<FVector>(proc.handle, cam + off::CameraCache + off::CameraLocation);
     // Minimal projection: if full matrix unavailable, identity-ish fails open
     frame.cameraLoc = loc;
-    float fov = Mem::Read<float>(proc.handle, cam + Off::CameraCache + Off::CameraFOV);
+    float fov = Mem::Read<float>(proc.handle, cam + off::CameraCache + off::CameraFOV);
     if (fov > 1.f && fov < 170.f) frame.cameraFov = fov;
 
     // Without a real view-projection matrix from the game, W2S will be wrong.
-    // Callers must fill Off::ViewMatrix or extend this to build VP from rotation+FOV.
+    // Callers must fill off::ViewMatrix or extend this to build VP from rotation+FOV.
     (void)viewProj_;
-    return Off::ViewMatrix != 0;
+    return off::ViewMatrix != 0;
 }
 
 bool EspSystem::ReadBone(uintptr_t mesh, int index, FVector& out) {
     if (!mesh) return false;
-    uintptr_t bones = Mem::ReadPtr(proc.handle, mesh + Off::BoneArray);
-    if (!bones) bones = Mem::ReadPtr(proc.handle, mesh + Off::BoneArrayCached);
+    uintptr_t bones = Mem::ReadPtr(proc.handle, mesh + off::BoneArray);
+    if (!bones) bones = Mem::ReadPtr(proc.handle, mesh + off::BoneArrayCached);
     if (!bones) return false;
     // FTransform array
     FTransform bt{};
     if (!Mem::ReadRaw(proc.handle, bones + static_cast<uintptr_t>(index) * sizeof(FTransform), &bt, sizeof(bt)))
         return false;
     FTransform c2w{};
-    if (!Mem::ReadRaw(proc.handle, mesh + Off::ComponentToWorld, &c2w, sizeof(c2w)))
+    if (!Mem::ReadRaw(proc.handle, mesh + off::ComponentToWorld, &c2w, sizeof(c2w)))
         return false;
     out = TransformPoint(c2w, bt.Translation);
     return true;
@@ -97,14 +97,14 @@ bool EspSystem::ReadBone(uintptr_t mesh, int index, FVector& out) {
 
 bool EspSystem::EnumPlayers() {
     frame.players.clear();
-    if (!Off::GWorld || !proc.base) return false;
+    if (!off::GWorld || !proc.base) return false;
 
-    uintptr_t world = Mem::ReadPtr(proc.handle, proc.base + Off::GWorld);
+    uintptr_t world = Mem::ReadPtr(proc.handle, proc.base + off::GWorld);
     if (!world) return false;
-    uintptr_t level = Mem::ReadPtr(proc.handle, world + Off::PersistentLevel);
+    uintptr_t level = Mem::ReadPtr(proc.handle, world + off::PersistentLevel);
     if (!level) return false;
-    uintptr_t actors = Mem::ReadPtr(proc.handle, level + Off::Actors);
-    int count = Mem::Read<int>(proc.handle, level + Off::ActorsCount);
+    uintptr_t actors = Mem::ReadPtr(proc.handle, level + off::Actors);
+    int count = Mem::Read<int>(proc.handle, level + off::ActorsCount);
     if (!actors || count <= 0 || count > 20000) return false;
 
     const float sw = ImGui::GetIO().DisplaySize.x;
@@ -113,8 +113,8 @@ bool EspSystem::EnumPlayers() {
     // local team from local pawn playerstate
     localTeam_ = -1;
     if (localPawn_) {
-        uintptr_t ps = Mem::ReadPtr(proc.handle, localPawn_ + Off::PlayerState);
-        if (ps) localTeam_ = Mem::Read<int>(proc.handle, ps + Off::TeamIndex);
+        uintptr_t ps = Mem::ReadPtr(proc.handle, localPawn_ + off::PlayerState);
+        if (ps) localTeam_ = Mem::Read<int>(proc.handle, ps + off::TeamIndex);
     }
 
     int cap = (std::min)(count, 4096);
@@ -125,22 +125,22 @@ bool EspSystem::EnumPlayers() {
             if (!actor) continue;
         }
 
-        uintptr_t mesh = Mem::ReadPtr(proc.handle, actor + Off::Mesh);
-        uintptr_t root = Mem::ReadPtr(proc.handle, actor + Off::RootComponent);
+        uintptr_t mesh = Mem::ReadPtr(proc.handle, actor + off::Mesh);
+        uintptr_t root = Mem::ReadPtr(proc.handle, actor + off::RootComponent);
         if (!mesh || !root) continue;
 
-        FVector loc = Mem::Read<FVector>(proc.handle, root + Off::RelativeLocation);
+        FVector loc = Mem::Read<FVector>(proc.handle, root + off::RelativeLocation);
         float dist = frame.cameraLoc.DistTo(loc) / 100.f; // cm → m approx
         if (dist <= 0.1f || dist > cfg.maxDistance) continue;
 
-        uintptr_t ps = Mem::ReadPtr(proc.handle, actor + Off::PlayerState);
-        int team = ps ? Mem::Read<int>(proc.handle, ps + Off::TeamIndex) : -1;
+        uintptr_t ps = Mem::ReadPtr(proc.handle, actor + off::PlayerState);
+        int team = ps ? Mem::Read<int>(proc.handle, ps + off::TeamIndex) : -1;
         if (cfg.teamCheck && localTeam_ >= 0 && team == localTeam_ && actor != localPawn_)
             continue;
 
         bool downed = false;
-        if (Off::bIsDBNO)
-            downed = Mem::Read<uint8_t>(proc.handle, actor + Off::bIsDBNO) != 0;
+        if (off::bIsDBNO)
+            downed = Mem::Read<uint8_t>(proc.handle, actor + off::bIsDBNO) != 0;
         if (downed && !cfg.showDowned) continue;
 
         EspPlayer pl;
@@ -152,7 +152,7 @@ bool EspSystem::EnumPlayers() {
         pl.name = "Player";
 
         // head bone
-        if (!ReadBone(mesh, Off::Head, pl.head))
+        if (!ReadBone(mesh, off::bone::Head, pl.head))
             pl.head = loc + FVector{ 0, 0, 90.f };
 
         pl.validScreen = WorldToScreen(pl.root, viewProj_, sw, sh, pl.rootS)
@@ -160,12 +160,12 @@ bool EspSystem::EnumPlayers() {
 
         // skeleton bones
         const int boneIdx[EspPlayer::kBones] = {
-            Off::Head, Off::Neck, Off::Chest,
-            Off::LShoulder, Off::LElbow, Off::LHand,
-            Off::RShoulder, Off::RElbow, Off::RHand,
-            Off::Pelvis,
-            Off::LHip, Off::LKnee, Off::LFoot,
-            Off::RHip, Off::RKnee, Off::RFoot
+            off::bone::Head, off::bone::Neck, off::bone::Chest,
+            off::bone::LShoulder, off::bone::LElbow, off::bone::LHand,
+            off::bone::RShoulder, off::bone::RElbow, off::bone::RHand,
+            off::bone::Pelvis,
+            off::bone::LHip, off::bone::LKnee, off::bone::LFoot,
+            off::bone::RHip, off::bone::RKnee, off::bone::RFoot
         };
         for (int b = 0; b < EspPlayer::kBones; b++) {
             FVector wb;
@@ -192,18 +192,6 @@ void EspSystem::Tick() {
         return;
     }
     frame.attached = true;
-
-    if (proc.base) {
-        uintptr_t uworld = Decrypt::GWorld(proc.base, proc.handle);
-        if (uworld) {
-            uintptr_t gi = Mem::ReadPtr(proc.handle, uworld + Off::GameInstance);
-            uintptr_t lpArr = Mem::ReadPtr(proc.handle, gi + Off::LocalPlayers);
-            uintptr_t lp = Mem::ReadPtr(proc.handle, lpArr);
-            uintptr_t pc = Mem::ReadPtr(proc.handle, lp + Off::PlayerController);
-            localPawn_ = Mem::ReadPtr(proc.handle, pc + Off::AcknowledgedPawn);
-        }
-    }
-
     ReadViewMatrix();
     EnumPlayers();
 }
@@ -249,6 +237,7 @@ void EspSystem::DrawBox(const EspPlayer& p, ImU32 col) {
     }
 
     if (cfg.healthBar) {
+        // placeholder full bar — wire real HP when offset known
         float bx = l - 5.f;
         dl->AddRectFilled(ImVec2(bx - 2, top), ImVec2(bx + 2, bot), IM_COL32(0, 0, 0, 160));
         dl->AddRectFilled(ImVec2(bx - 2, top), ImVec2(bx + 2, bot), IM_COL32(255, 255, 255, 200));
@@ -292,6 +281,7 @@ void EspSystem::DrawRadar() {
 
     for (auto& p : frame.players) {
         FVector d = p.root - frame.cameraLoc;
+        // top-down X/Y (ignore Z); scale to radarRange meters
         float rx = d.X / 100.f / cfg.radarRange;
         float ry = d.Y / 100.f / cfg.radarRange;
         if (rx * rx + ry * ry > 1.f) continue;
@@ -315,6 +305,17 @@ void EspSystem::DrawOverlay() {
 
         if (cfg.box) DrawBox(p, boxCol);
         if (cfg.skeleton) DrawSkeleton(p);
+        if (cfg.chams) {
+            // External "chams": filled body capsule between head and feet
+            ImDrawList* dl = ImGui::GetBackgroundDrawList();
+            float top = p.headS.Y, bot = p.rootS.Y;
+            if (bot < top) { float t = top; top = bot; bot = t; }
+            float h = bot - top; if (h < 4.f) h = 4.f;
+            float w = h * 0.42f;
+            float cx = (p.headS.X + p.rootS.X) * 0.5f;
+            ImU32 c = ImGui::ColorConvertFloat4ToU32(ImVec4(cfg.colors.chams[0], cfg.colors.chams[1], cfg.colors.chams[2], cfg.colors.chams[3]));
+            dl->AddRectFilled(ImVec2(cx - w*0.5f, top), ImVec2(cx + w*0.5f, bot), c, 4.f);
+        }
 
         if (cfg.headDot && p.boneOk[0]) {
             float r = cfg.headDotSize;
@@ -336,6 +337,7 @@ void EspSystem::DrawOverlay() {
             dl->AddLine(from, to, Col4(cfg.colors.snapline), 1.2f);
         }
 
+        // text stack above head
         float ty = p.headS.Y - 16.f;
         float cx = (p.headS.X + p.rootS.X) * 0.5f;
         if (cfg.name) {

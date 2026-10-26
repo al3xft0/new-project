@@ -4,6 +4,8 @@
 #include "texture.h"
 #include "embed_logo_sm.h"
 #include "embed_logo_lg.h"
+#include "overlay.h"
+#include "streamproof.h"
 #include "imgui.h"
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
@@ -11,24 +13,19 @@
 #include <tchar.h>
 #include <cstdio>
 #include <dwmapi.h>
-#include "streamproof.h"
-// after g_hwnd created — optional default:
-// StreamProof::Set(g_hwnd, false);
+#include <TlHelp32.h>
 
 #pragma comment(lib, "dwmapi.lib")
 
-static ID3D11Device*           g_device = nullptr;
+static ID3D11Device*           g_dev = nullptr;
 static ID3D11DeviceContext*    g_ctx = nullptr;
 static IDXGISwapChain*         g_swap = nullptr;
 static ID3D11RenderTargetView* g_rtv = nullptr;
+static HWND                    g_loader = nullptr;
+static HWND                    g_overlay = nullptr;
 static bool                    g_running = true;
-static HWND                    g_hwnd = nullptr;
-
-static const int kMenuW    = 760;
-static const int kMenuH    = 520;
-static const int kDragH    = 56;   // top drag only
-static const int kBrandH   = 100;  // sidebar logo zone only (tabs stay client)
-static const int kSidebarW = 196;
+static bool                    g_attachedMode = false;
+static const int kLoaderW = 520, kLoaderH = 640;
 static const int kHotkeyId = 1;
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
@@ -36,14 +33,9 @@ extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM,
 static void CreateRT() {
     ID3D11Texture2D* bb = nullptr;
     g_swap->GetBuffer(0, IID_PPV_ARGS(&bb));
-    if (bb) {
-        g_device->CreateRenderTargetView(bb, nullptr, &g_rtv);
-        bb->Release();
-    }
+    if (bb) { g_dev->CreateRenderTargetView(bb, nullptr, &g_rtv); bb->Release(); }
 }
-static void CleanupRT() {
-    if (g_rtv) { g_rtv->Release(); g_rtv = nullptr; }
-}
+static void CleanupRT() { if (g_rtv) { g_rtv->Release(); g_rtv = nullptr; } }
 
 static bool CreateDevice(HWND hwnd) {
     DXGI_SWAP_CHAIN_DESC sd{};
@@ -56,149 +48,171 @@ static bool CreateDevice(HWND hwnd) {
     sd.SampleDesc.Count = 1;
     sd.Windowed = TRUE;
     sd.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-
-    D3D_FEATURE_LEVEL fl;
-    const D3D_FEATURE_LEVEL levels[2] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0 };
-    HRESULT hr = D3D11CreateDeviceAndSwapChain(
-        nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0,
-        levels, 2, D3D11_SDK_VERSION, &sd,
-        &g_swap, &g_device, &fl, &g_ctx);
-    if (hr == DXGI_ERROR_UNSUPPORTED)
-        hr = D3D11CreateDeviceAndSwapChain(
-            nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0,
-            levels, 2, D3D11_SDK_VERSION, &sd,
-            &g_swap, &g_device, &fl, &g_ctx);
+    D3D_FEATURE_LEVEL fl, levels[] = { D3D_FEATURE_LEVEL_11_0, D3D_FEATURE_LEVEL_10_0 };
+    HRESULT hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0,
+        levels, 2, D3D11_SDK_VERSION, &sd, &g_swap, &g_dev, &fl, &g_ctx);
+    if (FAILED(hr))
+        hr = D3D11CreateDeviceAndSwapChain(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0,
+            levels, 2, D3D11_SDK_VERSION, &sd, &g_swap, &g_dev, &fl, &g_ctx);
     if (FAILED(hr)) return false;
     CreateRT();
     return true;
 }
-
 static void CleanupDevice() {
     CleanupRT();
     if (g_swap) { g_swap->Release(); g_swap = nullptr; }
     if (g_ctx) { g_ctx->Release(); g_ctx = nullptr; }
-    if (g_device) { g_device->Release(); g_device = nullptr; }
+    if (g_dev) { g_dev->Release(); g_dev = nullptr; }
 }
 
-static void SetMenuVisible(bool vis) {
-    if (!g_hwnd) return;
-    ShowWindow(g_hwnd, vis ? SW_SHOW : SW_HIDE);
+static bool RecreateSwapchainFor(HWND hwnd) {
+    CleanupRT();
+    if (g_swap) { g_swap->Release(); g_swap = nullptr; }
+    if (g_ctx) { g_ctx->Release(); g_ctx = nullptr; }
+    if (g_dev) { g_dev->Release(); g_dev = nullptr; }
+    return CreateDevice(hwnd);
 }
 
-static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
-    if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
-        return true;
-
-    switch (msg) {
-    case WM_HOTKEY:
-        if ((int)wParam == kHotkeyId) {
-            // Toggled in UI_Render via shared state — post a message flag
-            PostMessageW(hWnd, WM_APP + 7, 0, 0);
-        }
+static LRESULT WINAPI LoaderProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (ImGui_ImplWin32_WndProcHandler(h, m, w, l)) return true;
+    switch (m) {
+    case WM_DESTROY:
+        if (!g_attachedMode) { PostQuitMessage(0); }
         return 0;
-
-    case WM_NCHITTEST: {
-        LRESULT hit = DefWindowProcW(hWnd, msg, wParam, lParam);
-        if (hit != HTCLIENT)
-            return hit;
-
-        POINT pt{ (SHORT)LOWORD(lParam), (SHORT)HIWORD(lParam) };
-        ScreenToClient(hWnd, &pt);
-
-        // Top-right: min/close stay client
-        if (pt.y < kDragH && pt.x > kMenuW - 100)
-            return HTCLIENT;
-
-        // Top header strip only
-        if (pt.y >= 0 && pt.y < kDragH)
-            return HTCAPTION;
-
-        // Sidebar brand block ONLY (logo area) — NOT the tab buttons
-        if (pt.x >= 0 && pt.x < kSidebarW && pt.y >= kDragH && pt.y < kBrandH)
-            return HTCAPTION;
-
-        // Tabs + content = client so ImGui receives clicks
-        return HTCLIENT;
-    }
     case WM_SIZE:
-        if (g_device && wParam != SIZE_MINIMIZED) {
+        if (g_dev && w != SIZE_MINIMIZED && !g_attachedMode) {
             CleanupRT();
-            g_swap->ResizeBuffers(0, (UINT)LOWORD(lParam), (UINT)HIWORD(lParam),
-                                  DXGI_FORMAT_UNKNOWN, 0);
+            g_swap->ResizeBuffers(0, LOWORD(l), HIWORD(l), DXGI_FORMAT_UNKNOWN, 0);
             CreateRT();
         }
         return 0;
+    }
+    return DefWindowProcW(h, m, w, l);
+}
+
+static LRESULT WINAPI OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (ImGui_ImplWin32_WndProcHandler(h, m, w, l)) return true;
+    switch (m) {
+    case WM_HOTKEY:
+        if ((int)w == kHotkeyId)
+            PostMessageW(h, WM_APP + 7, 0, 0);
+        return 0;
     case WM_DESTROY:
-        UnregisterHotKey(hWnd, kHotkeyId);
         PostQuitMessage(0);
         return 0;
+    case WM_SIZE:
+        if (g_dev && w != SIZE_MINIMIZED) {
+            CleanupRT();
+            g_swap->ResizeBuffers(0, LOWORD(l), HIWORD(l), DXGI_FORMAT_UNKNOWN, 0);
+            CreateRT();
+        }
+        return 0;
     }
-    return DefWindowProcW(hWnd, msg, wParam, lParam);
+    return DefWindowProcW(h, m, w, l);
+}
+
+static bool IsFortniteRunning() {
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) return false;
+    PROCESSENTRY32W pe{ sizeof(pe) };
+    bool found = false;
+    if (Process32FirstW(snap, &pe)) {
+        do {
+            if (_wcsicmp(pe.szExeFile, L"FortniteClient-Win64-Shipping.exe") == 0 ||
+                _wcsicmp(pe.szExeFile, L"FortniteClient-Win64-Shipping_EAC_EOS.exe") == 0) {
+                found = true; break;
+            }
+        } while (Process32NextW(snap, &pe));
+    }
+    CloseHandle(snap);
+    return found;
+}
+
+static bool EnterOverlayMode(HINSTANCE hi, AppState& st) {
+    int w = GetSystemMetrics(SM_CXSCREEN);
+    int h = GetSystemMetrics(SM_CYSCREEN);
+
+    WNDCLASSEXW wc{ sizeof(wc) };
+    wc.lpfnWndProc = OverlayProc;
+    wc.hInstance = hi;
+    wc.lpszClassName = L"CipherOverlay";
+    wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
+    RegisterClassExW(&wc);
+
+    g_overlay = CreateWindowExW(
+        WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
+        L"CipherOverlay", L"Cipher",
+        WS_POPUP, 0, 0, w, h,
+        nullptr, nullptr, hi, nullptr);
+    if (!g_overlay) return false;
+
+    // Color-key pure black → transparent where we clear black; draw UI/ESP in non-black
+    SetLayeredWindowAttributes(g_overlay, RGB(0, 0, 0), 0, LWA_COLORKEY);
+    MARGINS margins{ -1 };
+    DwmExtendFrameIntoClientArea(g_overlay, &margins);
+
+    ShowWindow(g_loader, SW_MINIMIZE);
+    ShowWindow(g_overlay, SW_SHOW);
+    SetForegroundWindow(g_overlay);
+
+    if (!RecreateSwapchainFor(g_overlay)) return false;
+
+    ImGui_ImplWin32_Shutdown();
+    ImGui_ImplWin32_Init(g_overlay);
+    RegisterHotKey(g_overlay, kHotkeyId, 0, VK_INSERT);
+
+    g_attachedMode = true;
+    st.mode = AppMode::Overlay;
+    st.menuOpen = true;
+    Overlay::SetClickThrough(g_overlay, false);
+    StreamProof::Set(g_overlay, st.misc.streamproof);
+    snprintf(st.status, sizeof(st.status), "Overlay live — INSERT toggles menu");
+    return true;
 }
 
 int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
-    WNDCLASSEXW wc{ sizeof(wc), CS_CLASSDC, WndProc, 0L, 0L, hi,
-                    nullptr, nullptr, nullptr, nullptr, L"CipherUI", nullptr };
+    WNDCLASSEXW wc{ sizeof(wc), CS_CLASSDC, LoaderProc, 0, 0, hi,
+                    nullptr, nullptr, nullptr, nullptr, L"CipherLoader", nullptr };
     RegisterClassExW(&wc);
 
-    int screenW = GetSystemMetrics(SM_CXSCREEN);
-    int screenH = GetSystemMetrics(SM_CYSCREEN);
-    int posX = (screenW - kMenuW) / 2;
-    int posY = (screenH - kMenuH) / 2;
+    int sx = (GetSystemMetrics(SM_CXSCREEN) - kLoaderW) / 2;
+    int sy = (GetSystemMetrics(SM_CYSCREEN) - kLoaderH) / 2;
+    g_loader = CreateWindowExW(WS_EX_APPWINDOW, L"CipherLoader", L"Cipher",
+        WS_POPUP | WS_MINIMIZEBOX,
+        sx, sy, kLoaderW, kLoaderH, nullptr, nullptr, hi, nullptr);
 
-    g_hwnd = CreateWindowExW(
-        WS_EX_APPWINDOW | WS_EX_WINDOWEDGE,
-        wc.lpszClassName, L"Cipher",
-        WS_POPUP,
-        posX, posY, kMenuW, kMenuH,
-        nullptr, nullptr, wc.hInstance, nullptr);
-        StreamProof::Set(g_hwnd, false);
-    
-    const DWORD DWMWCP_ROUND = 2;
-    DwmSetWindowAttribute(g_hwnd, 33, (void*)&DWMWCP_ROUND, sizeof(DWMWCP_ROUND));
     BOOL dark = TRUE;
-    DwmSetWindowAttribute(g_hwnd, 20, &dark, sizeof(dark));
-    MARGINS shadow{ 1, 1, 1, 1 };
-    DwmExtendFrameIntoClientArea(g_hwnd, &shadow);
+    DwmSetWindowAttribute(g_loader, 20, &dark, sizeof(dark));
+    DWORD round = 2;
+    DwmSetWindowAttribute(g_loader, 33, &round, sizeof(round));
+    MARGINS shadow{ 1,1,1,1 };
+    DwmExtendFrameIntoClientArea(g_loader, &shadow);
 
-    // Global INSERT even when window hidden / unfocused
-    RegisterHotKey(g_hwnd, kHotkeyId, 0, VK_INSERT);
-
-    if (!CreateDevice(g_hwnd)) {
-        CleanupDevice();
-        UnregisterClassW(wc.lpszClassName, wc.hInstance);
-        return 1;
-    }
-
-    ShowWindow(g_hwnd, SW_SHOWDEFAULT);
-    UpdateWindow(g_hwnd);
+    if (!CreateDevice(g_loader)) return 1;
+    ShowWindow(g_loader, SW_SHOWDEFAULT);
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
-    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.IniFilename = nullptr;
     Theme::Apply();
     UI_InitFonts();
-
-    ImGui_ImplWin32_Init(g_hwnd);
-    ImGui_ImplDX11_Init(g_device, g_ctx);
+    ImGui_ImplWin32_Init(g_loader);
+    ImGui_ImplDX11_Init(g_dev, g_ctx);
 
     AppState st{};
-    std::snprintf(st.status, sizeof(st.status), "Feature 2 - ESP");
-
-    Tex::LoadPNGMemory(g_device, kLogoSmPng, kLogoSmPng_len, st.logoSm);
-    Tex::LoadPNGMemory(g_device, kLogoLgPng, kLogoLgPng_len, st.logoLg);
-    if (!st.logoSm.ok() && st.logoLg.ok()) st.logoSm = st.logoLg;
-    if (!st.logoLg.ok() && st.logoSm.ok()) st.logoLg = st.logoSm;
+    st.mode = AppMode::Loader;
+    Tex::LoadPNGMemory(g_dev, kLogoSmPng, kLogoSmPng_len, st.logoSm);
+    Tex::LoadPNGMemory(g_dev, kLogoLgPng, kLogoLgPng_len, st.logoLg);
 
     g_running = true;
     while (g_running) {
         MSG msg;
-        while (PeekMessageW(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
+        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
             if (msg.message == WM_APP + 7) {
                 st.menuOpen = !st.menuOpen;
-                SetMenuVisible(st.menuOpen);
+                if (g_overlay)
+                    Overlay::SetClickThrough(g_overlay, !st.menuOpen);
             }
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
@@ -206,40 +220,68 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
         }
         if (!g_running) break;
 
-        // Sync visibility if UI flipped menuOpen without hotkey
-        static bool lastOpen = true;
-        if (st.menuOpen != lastOpen) {
-            SetMenuVisible(st.menuOpen);
-            lastOpen = st.menuOpen;
+        // Loader: poll Fortnite status
+        if (st.mode == AppMode::Loader) {
+            st.fortniteOpen = IsFortniteRunning();
+            if (st.requestAttach && st.fortniteOpen) {
+                st.requestAttach = false;
+                if (st.esp.Attach()) {
+                    if (!EnterOverlayMode(hi, st)) {
+                        snprintf(st.status, sizeof(st.status), "Overlay create failed");
+                        st.mode = AppMode::Loader;
+                    }
+                } else {
+                    snprintf(st.status, sizeof(st.status), "Attach failed");
+                }
+            } else if (st.requestAttach) {
+                st.requestAttach = false;
+                snprintf(st.status, sizeof(st.status), "Fortnite not open");
+            }
+        } else {
+            // Overlay engines
+            if (st.autoAttach && !st.esp.Attached())
+                st.esp.Attach();
+            st.esp.Tick();
+            st.aim.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+            st.trigger.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+            st.exploits.Tick(st.esp);
+            if (st.misc.streamproof)
+                StreamProof::Set(g_overlay, true);
         }
 
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        UI_Render(st, g_device, g_hwnd);
+        if (st.mode == AppMode::Loader)
+            UI_RenderLoader(st, g_dev, g_loader);
+        else {
+            // Always draw world overlays
+            st.esp.DrawOverlay();
+            st.aim.DrawFovAndRadar(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+            if (st.menuOpen)
+                UI_RenderOverlay(st, g_dev, g_overlay);
+        }
 
         ImGui::Render();
-
-        if (st.menuOpen && IsWindowVisible(g_hwnd)) {
-            const float clear[4] = { 0.04f, 0.04f, 0.05f, 1.f };
-            g_ctx->OMSetRenderTargets(1, &g_rtv, nullptr);
-            g_ctx->ClearRenderTargetView(g_rtv, clear);
-            ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-            g_swap->Present(st.misc.vsync ? 1 : 0, 0);
+        // Clear: loader uses dark bg; overlay uses pure black for color-key transparency
+        float clear[4];
+        if (st.mode == AppMode::Loader) {
+            clear[0] = 0.04f; clear[1] = 0.04f; clear[2] = 0.05f; clear[3] = 1.f;
         } else {
-            // Window hidden — still run logic; no present of black frame
-            Sleep(1);
+            clear[0] = 0.f; clear[1] = 0.f; clear[2] = 0.f; clear[3] = 0.f;
         }
+        g_ctx->OMSetRenderTargets(1, &g_rtv, nullptr);
+        g_ctx->ClearRenderTargetView(g_rtv, clear);
+        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+        g_swap->Present(st.misc.vsync ? 1 : 0, 0);
     }
 
-    Tex::Release(st.logoLg);
-    Tex::Release(st.logoSm);
-    ImGui_ImplDX11_Shutdown();
-    ImGui_ImplWin32_Shutdown();
-    ImGui::DestroyContext();
+    UnregisterHotKey(g_overlay, kHotkeyId);
+    Tex::Release(st.logoLg); Tex::Release(st.logoSm);
+    ImGui_ImplDX11_Shutdown(); ImGui_ImplWin32_Shutdown(); ImGui::DestroyContext();
     CleanupDevice();
-    DestroyWindow(g_hwnd);
-    UnregisterClassW(wc.lpszClassName, wc.hInstance);
+    if (g_overlay) DestroyWindow(g_overlay);
+    if (g_loader) DestroyWindow(g_loader);
     return 0;
 }

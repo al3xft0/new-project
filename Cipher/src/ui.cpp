@@ -1,23 +1,26 @@
 #include "win_pre.h"
 #include <Windows.h>
 #include "ui.h"
+#include "streamproof.h"
+#include "config.h"
+#include "exploits.h"
 #include "theme.h"
 #include "imgui.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
 #include <algorithm>
-#include "streamproof.h"
 
 static constexpr float kSidebarW = 196.f;
 static constexpr float kHeaderH  = 64.f;
 
 static const char* TabName(TabId id) {
     switch (id) {
-    case TabId::Combat:  return "Combat";
-    case TabId::Visuals: return "Visuals";
-    case TabId::Misc:    return "Misc";
-    case TabId::Config:  return "Config";
+    case TabId::Combat:   return "Combat";
+    case TabId::Visuals:  return "Visuals";
+    case TabId::Exploits: return "Exploits";
+    case TabId::Misc:     return "Misc";
+    case TabId::Config:   return "Config";
     default: return "?";
     }
 }
@@ -35,6 +38,24 @@ static void DrawTabGlyph(ImDrawList* dl, TabId id, ImVec2 c, float s, ImU32 col)
         dl->AddEllipse(c, ImVec2(s * 0.55f, s * 0.32f), col, 0.f, 0, 1.6f);
         dl->AddCircleFilled(c, s * 0.14f, col, 12);
         break;
+    case TabId::Exploits: {
+        // bolt
+        ImVec2 pts[6] = {
+            ImVec2(c.x + s*0.05f, c.y - s*0.55f),
+            ImVec2(c.x - s*0.15f, c.y - s*0.05f),
+            ImVec2(c.x + s*0.05f, c.y - s*0.05f),
+            ImVec2(c.x - s*0.05f, c.y + s*0.55f),
+            ImVec2(c.x + s*0.15f, c.y + s*0.05f),
+            ImVec2(c.x - s*0.05f, c.y + s*0.05f),
+        };
+        dl->AddLine(pts[0], pts[1], col, 1.6f);
+        dl->AddLine(pts[1], pts[2], col, 1.6f);
+        dl->AddLine(pts[2], pts[3], col, 1.6f);
+        dl->AddLine(pts[3], pts[4], col, 1.6f);
+        dl->AddLine(pts[4], pts[5], col, 1.6f);
+        dl->AddLine(pts[5], pts[1], col, 1.6f);
+        break;
+    }
     case TabId::Misc:
         dl->AddCircle(c, s * 0.35f, col, 0, 1.6f);
         dl->AddLine(ImVec2(c.x, c.y - s * 0.35f), ImVec2(c.x + s * 0.22f, c.y - s * 0.12f), col, 1.5f);
@@ -206,6 +227,7 @@ static void DrawVisualsPage(AppState& st) {
     ToggleRow("Distance", &e.distance);
     ToggleRow("Head dot", &e.headDot);
     ToggleRow("Health bar", &e.healthBar);
+    ToggleRow("Chams", &e.chams, "Filled body silhouette");
     ToggleRow("Snaplines", &e.snaplines);
     ToggleRow("Radar", &e.radar);
 
@@ -253,6 +275,16 @@ static void DrawVisualsPage(AppState& st) {
     ColorRow("Snapline", e.colors.snapline);
     ColorRow("Head dot", e.colors.headDot);
     ColorRow("Radar blip", e.colors.radar);
+    ColorRow("Chams", e.colors.chams);
+
+    SectionHeader("PLAYER LIST");
+    ImGui::BeginChild("##plist", ImVec2(0, 120), true);
+    ImGui::TextDisabled("count %d", st.esp.frame.playerCount);
+    for (int i = 0; i < (int)st.esp.frame.players.size() && i < 32; i++) {
+        auto& pl = st.esp.frame.players[i];
+        ImGui::Text("%02d  %5.0fm  team %d  %s", i, pl.distance, pl.team, pl.downed ? "DBNO" : "up");
+    }
+    ImGui::EndChild();
 
     SectionHeader("OFFSETS");
     ImGui::TextDisabled("GWorld / bones / camera are FILL in offsets.h");
@@ -265,11 +297,16 @@ static void DrawCombatPage(AppState& st) {
     auto& a = st.aim.cfg;
     SectionHeader("AIM");
     ToggleRow("Aimbot", &a.enabled, "Hold aim key to track targets from ESP list");
+    ToggleRow("Soft aim", &a.softAim, "Higher smooth tracking");
+    ToggleRow("FOV radar", &a.fovRadar, "Triangles on FOV ring toward enemies");
     ToggleRow("Silent", &a.silent, "Hard lock / angle write when offsets exist");
     ToggleRow("Visible check", &a.visibleCheck);
     ToggleRow("Draw FOV", &a.drawFov);
+    ImGui::TextUnformatted("FOV / radar color");
+    ImGui::ColorEdit4("##fovcol", a.fovColor, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_AlphaBar);
     SliderRow("FOV", &a.fovDeg, 1.f, 45.f, "%.0f deg");
-    SliderRow("Smooth", &a.smooth, 1.f, 20.f, "%.1f");
+    SliderRow("Soft smooth", &a.softSmooth, 2.f, 25.f, "%.1f");
+    SliderRow("Hard smooth", &a.hardSmooth, 1.f, 10.f, "%.1f");
     ImGui::TextUnformatted("Bone");
     ImGui::SetNextItemWidth(-1);
     ImGui::Combo("##bone", &a.bone, "Head\0Neck\0Chest\0");
@@ -289,27 +326,67 @@ static void DrawCombatPage(AppState& st) {
     ImGui::Spacing();
     ImGui::TextDisabled("Targets come from the ESP actor list.");
     ImGui::TextDisabled("Silent needs live camera write offsets for true no-move.");
+    SectionHeader("TRIGGERBOT");
+    ToggleRow("Enable trigger", &st.trigger.cfg.enabled);
+    ToggleRow("Visible only", &st.trigger.cfg.visibleOnly);
+    ToggleRow("Require aim key", &st.trigger.cfg.requireKey);
+    SliderRow("Max distance", &st.trigger.cfg.maxDist, 10.f, 200.f, "%.0f m");
+    ImGui::TextUnformatted("Delay ms");
+    ImGui::SetNextItemWidth(-1);
+    ImGui::SliderInt("##tdelay", &st.trigger.cfg.delayMs, 0, 200);
+}
+
+
+
+static void DrawExploitsPage(AppState& st) {
+    auto& x = st.exploits.cfg;
+    SectionHeader("WEAPON");
+    ToggleRow("No recoil", &x.noRecoil, "Zero WeaponRecoilOffset + recoil counters");
+    ToggleRow("No spread", &x.noSpread, "Clear bullet spread timers/counters");
+    ToggleRow("Rapid fire", &x.rapidFire, "Clear local reload/equip gate bits");
+    ToggleRow("No reload", &x.noReload, "Client-side only — often ignored by server");
+    ToggleRow("Infinite ammo", &x.infiniteAmmo, "Usually server-authoritative");
+
+    SectionHeader("CAMERA");
+    ToggleRow("FOV changer", &x.fovChanger);
+    SliderRow("FOV value", &x.fovValue, 60.f, 140.f, "%.0f");
+
+    SectionHeader("MOVEMENT");
+    ToggleRow("Speed multiplier", &x.speedHack, "Writes MaxWalkSpeed when CMC offset is valid");
+    SliderRow("Speed mult", &x.speedMult, 1.f, 3.f, "%.2fx");
+    ToggleRow("Spinbot", &x.spinbot, "Local experiment — not wired until rotation write is set");
+    SliderRow("Spin speed", &x.spinSpeed, 1.f, 40.f, "%.0f");
+
+    SectionHeader("NOTES");
+    ImGui::TextWrapped("Offsets from SDK dump 20-10. Weapon writes target CurrentWeapon on local pawn.");
+    ImGui::TextDisabled("Server may reject or rubberband movement/ammo changes.");
 }
 
 static void DrawMiscPage(AppState& st) {
     SectionHeader("CLIENT");
-    bool prev = st.misc.streamproof;
-    ToggleRow("Streamproof", &st.misc.streamproof, "Hide Cipher from screenshare / Capture");
+    ToggleRow("Streamproof", &st.misc.streamproof);
     ToggleRow("VSync", &st.misc.vsync);
     ToggleRow("Watermark", &st.misc.watermark);
-    // applied every frame from UI_Render using hwnd
-    (void)prev;
+    ToggleRow("Show debug", &st.misc.showDebug, "PID / player count in status");
 }
 
 static void DrawConfigPage(AppState& st) {
     SectionHeader("CONFIG");
-    if (ImGui::Button("Save config", ImVec2(-1, 34)))
-        snprintf(st.status, sizeof(st.status), "Config IO - Feature 3");
-    if (ImGui::Button("Load config", ImVec2(-1, 34)))
-        snprintf(st.status, sizeof(st.status), "Config IO - Feature 3");
+    if (ImGui::Button("Save config", ImVec2(-1, 34))) {
+        if (Config::Save(st.esp.cfg, st.aim.cfg, st.trigger.cfg, Config::DefaultPath()))
+            snprintf(st.status, sizeof(st.status), "Config saved");
+        else
+            snprintf(st.status, sizeof(st.status), "Config save failed");
+    }
+    if (ImGui::Button("Load config", ImVec2(-1, 34))) {
+        if (Config::Load(st.esp.cfg, st.aim.cfg, st.trigger.cfg, Config::DefaultPath()))
+            snprintf(st.status, sizeof(st.status), "Config loaded");
+        else
+            snprintf(st.status, sizeof(st.status), "Config load failed");
+    }
     SectionHeader("ABOUT");
-    ImGui::TextUnformatted("Cipher  ·  ESP Feature 2");
-    ImGui::TextDisabled("External read-only. Offsets must be current.");
+    ImGui::TextUnformatted("Cipher");
+    ImGui::TextDisabled("External stack. Offsets in src/offsets.h must match live client.");
 }
 
 void UI_InitFonts() {
@@ -317,17 +394,7 @@ void UI_InitFonts() {
     io.Fonts->AddFontDefault();
 }
 
-void UI_Render(AppState& st, ID3D11Device*, HWND hwnd) {
-        // Streamproof — apply when menu visible; keep affinity while hidden too
-    {
-        static bool lastSp = false;
-        static bool inited = false;
-        if (!inited || st.misc.streamproof != lastSp) {
-            StreamProof::Set(hwnd, st.misc.streamproof);
-            lastSp = st.misc.streamproof;
-            inited = true;
-        }
-    }
+void UI_RenderOverlay(AppState& st, ID3D11Device*, HWND hwnd) {
     const ImGuiIO& io = ImGui::GetIO();
     const float dt = io.DeltaTime;
 
@@ -343,7 +410,17 @@ void UI_Render(AppState& st, ID3D11Device*, HWND hwnd) {
     st.esp.DrawOverlay();
 
     st.aim.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-    st.aim.DrawFov((int)io.DisplaySize.x, (int)io.DisplaySize.y);
+    st.aim.DrawFovAndRadar(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+    st.trigger.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+    st.exploits.Tick(st.esp);
+    {
+        static bool lastSp = false, init = false;
+        if (!init || st.misc.streamproof != lastSp) {
+            StreamProof::Set(hwnd, st.misc.streamproof);
+            lastSp = st.misc.streamproof;
+            init = true;
+        }
+    }
 
     st.openAnim = Theme::Lerp(st.openAnim, st.menuOpen ? 1.f : 0.f, dt * 14.f);
     if (!st.menuOpen || st.openAnim < 0.01f) {
@@ -419,4 +496,100 @@ void UI_Render(AppState& st, ID3D11Device*, HWND hwnd) {
     ImGui::PopStyleVar();
     ImGui::EndChild();
     ImGui::End();
+}
+
+
+void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
+    const ImGuiIO& io = ImGui::GetIO();
+    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 12.f);
+    ImGui::Begin("##loader", nullptr,
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove);
+
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    ImVec2 wp = ImGui::GetWindowPos();
+    ImVec2 ws = ImGui::GetWindowSize();
+
+    // background card + glow
+    dl->AddRectFilled(wp, ImVec2(wp.x+ws.x, wp.y+ws.y), IM_COL32(12,12,14,255), 12.f);
+    for (int i = 3; i >= 1; --i)
+        dl->AddRect(ImVec2(wp.x-i*2, wp.y-i*2), ImVec2(wp.x+ws.x+i*2, wp.y+ws.y+i*2),
+                    IM_COL32(255,255,255, 4*i), 14.f);
+
+    // brand
+    ImVec2 lc(wp.x + ws.x*0.5f, wp.y + 90.f);
+    if (st.logoSm.ok()) {
+        float sz = 72.f;
+        dl->AddCircleFilled(lc, sz*0.72f, IM_COL32(255,255,255,20), 48);
+        dl->AddImage((ImTextureID)st.logoSm.srv, ImVec2(lc.x-sz*0.5f, lc.y-sz*0.5f),
+                     ImVec2(lc.x+sz*0.5f, lc.y+sz*0.5f));
+    }
+    const char* title = "CIPHER";
+    ImVec2 ts = ImGui::CalcTextSize(title);
+    ImGui::SetCursorScreenPos(ImVec2(wp.x + (ws.x-ts.x)*0.5f, wp.y + 140.f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1,1,1,1));
+    ImGui::TextUnformatted(title);
+    ImGui::PopStyleColor();
+    ImGui::SetCursorScreenPos(ImVec2(wp.x + 40.f, wp.y + 175.f));
+    ImGui::PushStyleColor(ImGuiCol_Text, Theme::TextDim);
+    ImGui::TextWrapped("%s", st.status);
+    ImGui::PopStyleColor();
+
+    // status pill
+    ImGui::SetCursorScreenPos(ImVec2(wp.x + 40.f, wp.y + 220.f));
+    ImGui::BeginChild("##statuscard", ImVec2(ws.x - 80.f, 72.f), true);
+    if (st.fortniteOpen) {
+        ImGui::TextColored(ImVec4(0.55f, 1.f, 0.65f, 1.f), "Fortnite detected");
+        ImGui::TextDisabled("Ready to attach");
+    } else {
+        ImGui::TextColored(ImVec4(1.f, 0.45f, 0.45f, 1.f), "Fortnite not open");
+        ImGui::TextDisabled("Start the game, then attach");
+    }
+    ImGui::EndChild();
+
+    ImGui::SetCursorScreenPos(ImVec2(wp.x + 40.f, wp.y + 310.f));
+    ImGui::PushStyleColor(ImGuiCol_Button, st.fortniteOpen ? ImVec4(1,1,1,0.12f) : ImVec4(1,1,1,0.04f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.20f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.28f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.f);
+    if (ImGui::Button("ATTACH", ImVec2(ws.x - 80.f, 52.f))) {
+        st.requestAttach = true;
+        if (!st.fortniteOpen)
+            snprintf(st.status, sizeof(st.status), "Fortnite not open");
+        else
+            snprintf(st.status, sizeof(st.status), "Attaching...");
+    }
+    ImGui::PopStyleVar();
+    ImGui::PopStyleColor(3);
+
+    ImGui::SetCursorScreenPos(ImVec2(wp.x + 40.f, wp.y + 380.f));
+    if (ImGui::Button("REFRESH STATUS", ImVec2(ws.x - 80.f, 40.f))) {
+        snprintf(st.status, sizeof(st.status), st.fortniteOpen ? "Fortnite detected" : "Fortnite not open");
+    }
+
+    ImGui::SetCursorScreenPos(ImVec2(wp.x + 40.f, wp.y + 440.f));
+    ImGui::TextDisabled("After attach: overlay covers the game.");
+    ImGui::SetCursorScreenPos(ImVec2(wp.x + 40.f, wp.y + 460.f));
+    ImGui::TextDisabled("INSERT toggles the in-game menu.");
+    ImGui::SetCursorScreenPos(ImVec2(wp.x + 40.f, wp.y + 490.f));
+    ImGui::TextDisabled("Loader minimizes on success.");
+
+    // close
+    ImGui::SetCursorScreenPos(ImVec2(wp.x + ws.x - 44.f, wp.y + 12.f));
+    if (ImGui::Button("X", ImVec2(32, 32)))
+        PostQuitMessage(0);
+
+    if (st.logoLg.ok()) {
+        float sz = 180.f;
+        dl->AddImage((ImTextureID)st.logoLg.srv,
+                     ImVec2(wp.x + ws.x - sz - 10, wp.y + ws.y - sz - 10),
+                     ImVec2(wp.x + ws.x - 10, wp.y + ws.y - 10),
+                     ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255,18));
+    }
+
+    ImGui::End();
+    ImGui::PopStyleVar();
+    (void)hwnd;
 }
