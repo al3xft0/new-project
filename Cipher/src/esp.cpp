@@ -193,10 +193,8 @@ void EspSystem::Tick() {
     }
     frame.attached = true;
 
-    uintptr_t base = Mem::GetModuleBase(nullptr);
-    if (base) {
-        auto read64 = [&](uintptr_t a) { return Mem::Read<uint64_t>(proc.handle, a); };
-        uintptr_t uworld = Decrypt::GWorld(base, read64);
+    if (proc.base) {
+        uintptr_t uworld = Decrypt::GWorld(proc.base, proc.handle);
         if (uworld) {
             uintptr_t gi = Mem::ReadPtr(proc.handle, uworld + Off::GameInstance);
             uintptr_t lpArr = Mem::ReadPtr(proc.handle, gi + Off::LocalPlayers);
