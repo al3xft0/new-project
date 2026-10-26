@@ -6,10 +6,14 @@
 #include "exploits.h"
 #include "theme.h"
 #include "imgui.h"
+#include "license_crypto.h"
+#include "license_store.h"
 #include <cstdio>
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include <vector>
+#include <ctime>
 
 static constexpr float kSidebarW = 196.f;
 static constexpr float kHeaderH  = 64.f;
@@ -39,7 +43,6 @@ static void DrawTabGlyph(ImDrawList* dl, TabId id, ImVec2 c, float s, ImU32 col)
         dl->AddCircleFilled(c, s * 0.14f, col, 12);
         break;
     case TabId::Exploits: {
-        // bolt
         ImVec2 pts[6] = {
             ImVec2(c.x + s*0.05f, c.y - s*0.55f),
             ImVec2(c.x - s*0.15f, c.y - s*0.05f),
@@ -143,7 +146,6 @@ static void DrawSidebar(AppState& st, ImVec2 origin, float height) {
     if (st.logoSm.ok()) {
         float sz = 52.f;
         ImVec2 tl(logoC.x - sz * 0.5f, logoC.y - sz * 0.5f);
-        // soft glow behind logo
         dl->AddCircleFilled(logoC, sz * 0.70f, IM_COL32(255, 255, 255, 16), 48);
         dl->AddImage((ImTextureID)st.logoSm.srv, tl, ImVec2(tl.x + sz, tl.y + sz),
                      ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255,255));
@@ -313,7 +315,6 @@ static void DrawCombatPage(AppState& st) {
     ImGui::Combo("##bone", &a.bone, "Head\0Neck\0Chest\0");
     ImGui::TextUnformatted("Aim key");
     ImGui::SetNextItemWidth(-1);
-    // 0 = RButton, 1 = LButton, 2 = XButton1, 3 = LSHIFT
     static int keySel = 0;
     if (a.aimKey == VK_LBUTTON) keySel = 1;
     else if (a.aimKey == VK_XBUTTON1) keySel = 2;
@@ -336,8 +337,6 @@ static void DrawCombatPage(AppState& st) {
     ImGui::SetNextItemWidth(-1);
     ImGui::SliderInt("##tdelay", &st.trigger.cfg.delayMs, 0, 200);
 }
-
-
 
 static void DrawExploitsPage(AppState& st) {
     auto& x = st.exploits.cfg;
@@ -399,37 +398,30 @@ void UI_RenderOverlay(AppState& st, ID3D11Device*, HWND hwnd) {
     const ImGuiIO& io = ImGui::GetIO();
     const float dt = io.DeltaTime;
 
-    // INSERT handled only in main (GetAsyncKeyState edge). Do not toggle here.
-    // Engines tick in main — do not double-tick here.
-
     st.openAnim = Theme::Lerp(st.openAnim, st.menuOpen ? 1.f : 0.f, dt * 18.f);
     if (!st.menuOpen || st.openAnim < 0.01f) {
-        // Do not draw menu; main.cpp hides the HWND so no black window
         (void)hwnd;
         return;
     }
 
     st.contentAlpha = Theme::Lerp(st.contentAlpha, 1.f, dt * 8.f);
 
-    // Proper sized menu panel — centered, not full-screen
     const float menuW = 780.f;
     const float menuH = 520.f;
     ImVec2 menuPos((io.DisplaySize.x - menuW) * 0.5f, (io.DisplaySize.y - menuH) * 0.5f);
     ImGui::SetNextWindowPos(menuPos, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(menuW, menuH), ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.0f); // we draw our own bg
+    ImGui::SetNextWindowBgAlpha(0.0f);
 
     ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar;
-        // movable — drag from empty panel / header area
 
     ImGui::Begin("##cipher", nullptr, flags);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 wp = ImGui::GetWindowPos();
     ImVec2 ws = ImGui::GetWindowSize();
 
-    // solid panel bg — must NOT be pure black (color-key would make it invisible)
     dl->AddRectFilled(wp, ImVec2(wp.x + ws.x, wp.y + ws.y),
                       IM_COL32(14, 14, 18, 255), 12.f);
     dl->AddRect(wp, ImVec2(wp.x + ws.x, wp.y + ws.y),
@@ -447,7 +439,6 @@ void UI_RenderOverlay(AppState& st, ID3D11Device*, HWND hwnd) {
                 ImVec2(contentPos.x + contentSize.x, contentPos.y + kHeaderH),
                 ImGui::ColorConvertFloat4ToU32(Theme::BorderSoft), 1.f);
 
-    // soft corner watermark logo (not stretched)
     if (st.logoSm.ok()) {
         float sz = 72.f;
         ImVec2 lp(contentPos.x + contentSize.x - sz - 16.f,
@@ -482,14 +473,115 @@ void UI_RenderOverlay(AppState& st, ID3D11Device*, HWND hwnd) {
     ImGui::End();
 }
 
+static float EaseOutCubic(float t) {
+    float u = 1.f - t;
+    return 1.f - u * u * u;
+}
 
+static bool UI_RenderLicenseGate(AppState& st, ImDrawList* dl, ImVec2 wp, ImVec2 ws, float mf) {
+    const float dt = ImGui::GetIO().DeltaTime;
+
+    if (st.introDone && st.logoAnim < 1.f) {
+        st.logoAnim = Theme::Lerp(st.logoAnim, 1.f, dt * 2.2f);
+        if (st.logoAnim > 0.995f) st.logoAnim = 1.f;
+    }
+    float a = EaseOutCubic(st.logoAnim);
+
+    ImVec2 center(wp.x + ws.x * 0.5f, wp.y + ws.y * 0.42f);
+    ImVec2 top(wp.x + ws.x * 0.5f, wp.y + 100.f);
+    ImVec2 logoPos(
+        center.x + (top.x - center.x) * a,
+        center.y + (top.y - center.y) * a);
+    float sz = 120.f + (64.f - 120.f) * a;
+
+    for (int i = 4; i >= 1; --i) {
+        float g = sz * (0.55f + i * 0.12f);
+        int alpha = (int)((14.f * mf) / (float)i);
+        dl->AddCircleFilled(logoPos, g, IM_COL32(230, 235, 255, alpha), 48);
+    }
+    if (st.logoSm.ok()) {
+        ImVec2 tl(logoPos.x - sz * 0.5f, logoPos.y - sz * 0.5f);
+        dl->AddImage((ImTextureID)st.logoSm.srv, tl, ImVec2(tl.x + sz, tl.y + sz),
+                     ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255,(int)(255*mf)));
+    }
+
+    if (a > 0.6f) {
+        float ta = (a - 0.6f) / 0.4f;
+        const char* title = "CIPHER";
+        ImVec2 ts = ImGui::CalcTextSize(title);
+        dl->AddText(ImVec2(logoPos.x - ts.x * 0.5f, logoPos.y + sz * 0.55f),
+                    IM_COL32(255,255,255,(int)(220 * ta * mf)), title);
+    }
+
+    if (a < 0.85f) return st.licenseOk;
+
+    float fieldW = 320.f;
+    float btnW = 48.f;
+    float gap = 10.f;
+    float total = fieldW + gap + btnW;
+    float rowX = wp.x + (ws.x - total) * 0.5f;
+    float rowY = wp.y + ws.y * 0.62f;
+
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, mf);
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, ImVec4(0.09f, 0.09f, 0.10f, 1.f));
+    ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, ImVec4(0.12f, 0.12f, 0.13f, 1.f));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1.f, 1.f, 1.f, 0.12f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1.f, 1.f, 1.f, 0.22f));
+
+    ImGui::SetCursorScreenPos(ImVec2(rowX, rowY));
+    ImGui::PushItemWidth(fieldW);
+    bool submit = ImGui::InputTextWithHint("##lic", "Enter license key", st.licenseBuf, sizeof(st.licenseBuf),
+                                           ImGuiInputTextFlags_EnterReturnsTrue);
+    ImGui::PopItemWidth();
+    ImGui::SameLine(0, gap);
+    if (ImGui::Button(">", ImVec2(btnW, 0))) submit = true;
+
+    ImGui::PopStyleColor(4);
+    ImGui::PopStyleVar(2);
+
+    if (submit && st.licenseBuf[0]) {
+        st.licenseTried = true;
+        std::vector<uint32_t> revoked;
+        st.licenseStatus = License::ValidateKey(st.licenseBuf, st.licenseInfo, revoked);
+        st.licenseOk = (st.licenseStatus == License::Status::Valid);
+        if (st.licenseOk) {
+            snprintf(st.status, sizeof(st.status), "License valid · %u days left",
+                     st.licenseInfo.durationDays);
+        }
+    }
+
+    if (st.licenseTried) {
+        float col[4];
+        License::StatusColor(st.licenseStatus, col);
+        const char* label = License::StatusString(st.licenseStatus);
+        ImVec2 ls = ImGui::CalcTextSize(label);
+        dl->AddText(ImVec2(wp.x + (ws.x - ls.x) * 0.5f, rowY + 42.f),
+                    IM_COL32((int)(col[0]*255), (int)(col[1]*255), (int)(col[2]*255), (int)(255*mf)),
+                    label);
+        if (st.licenseStatus == License::Status::Valid) {
+            char line[96];
+            time_t exp = (time_t)st.licenseInfo.expiresUnix;
+            struct tm tm {};
+            localtime_s(&tm, &exp);
+            char dbuf[32];
+            strftime(dbuf, sizeof(dbuf), "%Y-%m-%d", &tm);
+            snprintf(line, sizeof(line), "Active %u days · expires %s",
+                     st.licenseInfo.durationDays, dbuf);
+            ImVec2 ts = ImGui::CalcTextSize(line);
+            dl->AddText(ImVec2(wp.x + (ws.x - ts.x) * 0.5f, rowY + 64.f),
+                        IM_COL32(140, 140, 145, (int)(255*mf)), line);
+        }
+    }
+
+    return st.licenseOk;
+}
 
 void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     const ImGuiIO& io = ImGui::GetIO();
     const float dt = io.DeltaTime > 0.f ? io.DeltaTime : 0.016f;
     st.introT += dt;
 
-    // ESC always quits loader
     if (ImGui::IsKeyPressed(ImGuiKey_Escape))
         PostQuitMessage(0);
 
@@ -505,10 +597,9 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     ImVec2 wp = ImGui::GetWindowPos();
     ImVec2 ws = ImGui::GetWindowSize();
 
-    // base fill
-    dl->AddRectFilled(wp, ImVec2(wp.x + ws.x, wp.y + ws.y), IM_COL32(8, 8, 10, 255), 16.f);
+    // Paint window bg IM_COL32(10,10,12) full including top (no gray bar)
+    dl->AddRectFilled(wp, ImVec2(wp.x + ws.x, wp.y + ws.y), IM_COL32(10, 10, 12, 255), 16.f);
 
-    // soft vignette rings
     for (int i = 5; i >= 1; --i) {
         float e = (float)i * 18.f;
         dl->AddRect(ImVec2(wp.x - e * 0.15f, wp.y - e * 0.15f),
@@ -516,7 +607,6 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
                     IM_COL32(255, 255, 255, 3 * i), 18.f + i, 0, 1.2f);
     }
 
-    // ---------- INTRO: logo flash then fade ----------
     const float introHold = 0.85f;
     const float introFade = 0.65f;
     const float introEnd  = introHold + introFade;
@@ -526,12 +616,10 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
         float alpha = 1.f;
         float scale = 1.f;
         if (t < 0.25f) {
-            // punch in
             float u = t / 0.25f;
             scale = 0.65f + 0.45f * u;
             alpha = u;
         } else if (t < introHold) {
-            // breathe
             scale = 1.1f + 0.04f * sinf(t * 6.f);
             alpha = 1.f;
         } else if (t < introEnd) {
@@ -546,7 +634,6 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
 
         ImVec2 c(wp.x + ws.x * 0.5f, wp.y + ws.y * 0.5f);
         float sz = 120.f * scale;
-        // soft glow behind logo (lower alpha, cool tint — not hard white disks)
         for (int i = 5; i >= 1; --i) {
             float g = sz * (0.50f + i * 0.14f);
             int a = (int)((16.f * alpha) / (float)i);
@@ -565,7 +652,6 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
                          ImVec2(c.x + sz * 0.5f, c.y + sz * 0.5f),
                          ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255,a));
         }
-        // title under logo during hold
         if (t > 0.3f && t < introEnd) {
             const char* title = "CIPHER";
             ImVec2 ts = ImGui::CalcTextSize(title);
@@ -579,14 +665,9 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
         return;
     }
 
-    // ---------- MAIN LOADER MENU ----------
     st.menuFade = Theme::Lerp(st.menuFade, 1.f, dt * 4.5f);
     float mf = st.menuFade;
 
-    // top drag strip (visual only — Win32 NCHITTEST can be added; for now space)
-    dl->AddRectFilled(wp, ImVec2(wp.x + ws.x, wp.y + 42.f), IM_COL32(255,255,255, (int)(8 * mf)), 0);
-
-    // close button — large hit target
     {
         ImVec2 cmin(wp.x + ws.x - 48.f, wp.y + 8.f);
         ImGui::SetCursorScreenPos(cmin);
@@ -604,10 +685,18 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
         ImGui::PopStyleColor(3);
     }
 
-    // brand logo + title
+    // License gate check: if not verified, render gate and return
+    if (!st.licenseOk) {
+        UI_RenderLicenseGate(st, dl, wp, ws, mf);
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+        (void)hwnd;
+        return;
+    }
+
+    // ---------- MAIN ATTACH UI ----------
     ImVec2 lc(wp.x + ws.x * 0.5f, wp.y + 88.f);
     float pulse = 0.5f + 0.5f * sinf(st.introT * 2.2f);
-    // single soft halo under logo (keeps original layout positions)
     dl->AddCircleFilled(lc, 44.f + pulse * 3.f, IM_COL32(230, 235, 255, (int)(12 * mf)), 48);
     dl->AddCircle(lc, 50.f + pulse * 2.f, IM_COL32(255, 255, 255, (int)(22 * mf)), 48, 1.2f);
     if (st.logoSm.ok()) {
@@ -626,7 +715,6 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
         dl->AddText(ImVec2(lc.x - ss.x*0.5f, lc.y + 60.f), IM_COL32(160,160,170,(int)(200*mf)), sub);
     }
 
-    // status card
     float cardX = wp.x + 36.f;
     float cardW = ws.x - 72.f;
     float cardY = wp.y + 175.f;
@@ -634,8 +722,6 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     dl->AddRectFilled(c0, c1, IM_COL32(255,255,255, (int)(12 * mf)), 12.f);
     dl->AddRect(c0, c1, IM_COL32(255,255,255, (int)(22 * mf)), 12.f, 0, 1.f);
 
-    // Only refresh idle status when not mid-attach and status is still the default poll text
-    // (do not clobber real error messages from Mem::LastError)
     if (!st.attaching) {
         bool isIdle =
             std::strncmp(st.status, "Fortnite", 8) == 0 ||
@@ -655,7 +741,6 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
         ImGui::TextColored(ImVec4(1.f, 0.85f, 0.4f, 1.f), "Attaching...");
         ImGui::TextDisabled("Opening process + overlay");
     } else if (st.fortniteOpen) {
-        // glowing green dot
         ImVec2 d(cardX + 18.f, cardY + 22.f);
         dl->AddCircleFilled(ImVec2(d.x + 4, d.y + 4), 5.f + pulse * 2.f, IM_COL32(80, 255, 140, (int)(40 + 30*pulse)), 16);
         dl->AddCircleFilled(ImVec2(d.x + 4, d.y + 4), 4.f, IM_COL32(90, 255, 150, 255), 16);
@@ -673,7 +758,6 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     }
     ImGui::PopStyleVar();
 
-    // Always show last status / error under the card
     ImGui::SetCursorScreenPos(ImVec2(cardX, cardY + 80.f));
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, mf);
     ImGui::PushTextWrapPos(cardX + cardW);
@@ -681,7 +765,6 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     ImGui::PopTextWrapPos();
     ImGui::PopStyleVar();
 
-    // ATTACH button with glow
     float btnY = cardY + 100.f;
     ImGui::SetCursorScreenPos(ImVec2(cardX, btnY));
     bool canAttach = !st.attaching;
@@ -700,7 +783,6 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
             snprintf(st.status, sizeof(st.status), "Scanning for Shipping.exe...");
         }
     }
-    // outer glow on hover when enabled
     if (canAttach && ImGui::IsItemHovered()) {
         ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
         dl->AddRect(ImVec2(a.x-2, a.y-2), ImVec2(b.x+2, b.y+2), IM_COL32(255,255,255,50), 14.f, 0, 1.5f);
@@ -708,7 +790,6 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(4);
 
-    // secondary actions
     ImGui::SetCursorScreenPos(ImVec2(cardX, btnY + 66.f));
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1,1,1,0.06f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.12f));
@@ -724,7 +805,6 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(2);
 
-    // footer hints
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, mf * 0.85f);
     ImGui::SetCursorScreenPos(ImVec2(cardX, btnY + 130.f));
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f,0.55f,0.58f,1.f));
@@ -736,7 +816,6 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
 
-    // watermark logo corner
     if (st.logoLg.ok()) {
         float sz = 160.f;
         dl->AddImage((ImTextureID)st.logoLg.srv,
