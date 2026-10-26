@@ -36,6 +36,8 @@ add_executable(Cipher WIN32
     src/config.cpp
     src/exploits.cpp
     src/overlay.cpp
+    src/license_crypto.cpp
+    src/license_store.cpp
 )
 target_include_directories(Cipher PRIVATE src)
 target_link_libraries(Cipher PRIVATE imgui dwmapi)
