@@ -152,7 +152,7 @@ bool EspSystem::EnumPlayers() {
         pl.name = "Player";
 
         // head bone
-        if (!ReadBone(mesh, Off::bone::Head, pl.head))
+        if (!ReadBone(mesh, Off::Bone::Head, pl.head))
             pl.head = loc + FVector{ 0, 0, 90.f };
 
         pl.validScreen = WorldToScreen(pl.root, viewProj_, sw, sh, pl.rootS)
@@ -160,12 +160,12 @@ bool EspSystem::EnumPlayers() {
 
         // skeleton bones
         const int boneIdx[EspPlayer::kBones] = {
-            Off::bone::Head, Off::bone::Neck, Off::bone::Chest,
-            Off::bone::LShoulder, Off::bone::LElbow, Off::bone::LHand,
-            Off::bone::RShoulder, Off::bone::RElbow, Off::bone::RHand,
-            Off::bone::Pelvis,
-            Off::bone::LHip, Off::bone::LKnee, Off::bone::LFoot,
-            Off::bone::RHip, Off::bone::RKnee, Off::bone::RFoot
+            Off::Bone::Head, Off::Bone::Neck, Off::Bone::Chest,
+            Off::Bone::LShoulder, Off::Bone::LElbow, Off::Bone::LHand,
+            Off::Bone::RShoulder, Off::Bone::RElbow, Off::Bone::RHand,
+            Off::Bone::Pelvis,
+            Off::Bone::LHip, Off::Bone::LKnee, Off::Bone::LFoot,
+            Off::Bone::RHip, Off::Bone::RKnee, Off::Bone::RFoot
         };
         for (int b = 0; b < EspPlayer::kBones; b++) {
             FVector wb;
