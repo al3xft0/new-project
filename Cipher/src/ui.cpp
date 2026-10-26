@@ -562,12 +562,13 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
 
         ImVec2 c(wp.x + ws.x * 0.5f, wp.y + ws.y * 0.5f);
         float sz = 120.f * scale;
-        // glow bloom
-        for (int i = 4; i >= 1; --i) {
-            float g = sz * (0.55f + i * 0.12f);
-            int a = (int)(28 * alpha / i);
-            dl->AddCircleFilled(c, g, IM_COL32(255, 255, 255, a), 64);
+        // soft glow behind logo — falloff alpha, slight cool tint (not hard white disks)
+        for (int i = 6; i >= 1; --i) {
+            float r = sz * (0.42f + i * 0.18f);
+            int a = (int)((18.f * alpha) / (float)i);
+            dl->AddCircleFilled(c, r, IM_COL32(230, 235, 255, a), 64);
         }
+        dl->AddCircleFilled(c, sz * 0.55f, IM_COL32(255, 255, 255, (int)(22 * alpha)), 48);
         if (st.logoLg.ok()) {
             int a = (int)(255 * alpha);
             dl->AddImage((ImTextureID)st.logoLg.srv,
@@ -623,9 +624,9 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     // brand logo + title
     ImVec2 lc(wp.x + ws.x * 0.5f, wp.y + 88.f);
     float pulse = 0.5f + 0.5f * sinf(st.introT * 2.2f);
-    for (int i = 3; i >= 1; --i) {
-        dl->AddCircleFilled(lc, 38.f + i * 6.f, IM_COL32(255,255,255, (int)((10 + 6*pulse) * mf / i)), 48);
-    }
+    // single soft halo instead of stacked white circles
+    dl->AddCircleFilled(lc, 48.f + pulse * 4.f, IM_COL32(230, 235, 255, (int)(14 * mf)), 48);
+    dl->AddCircle(lc, 52.f + pulse * 3.f, IM_COL32(255, 255, 255, (int)(28 * mf)), 48, 1.2f);
     if (st.logoSm.ok()) {
         float sz = 64.f;
         dl->AddImage((ImTextureID)st.logoSm.srv,

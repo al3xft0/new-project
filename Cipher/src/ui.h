@@ -20,7 +20,7 @@ enum class TabId {
 
 struct MiscState {
     bool streamproof = false;
-    bool vsync       = true;
+    bool        vsync       = false;
     bool watermark   = true;
     bool showDebug   = true;
 };

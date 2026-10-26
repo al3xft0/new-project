@@ -77,10 +77,16 @@ static LRESULT WINAPI LoaderProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (ImGui_ImplWin32_WndProcHandler(h, m, w, l)) return true;
     switch (m) {
     case WM_CLOSE:
-        if (!g_attachedMode) { DestroyWindow(h); }
+        // Always allow the X / system close on the loader window.
+        DestroyWindow(h);
         return 0;
     case WM_DESTROY:
-        if (!g_attachedMode) { PostQuitMessage(0); }
+        if (!g_attachedMode) {
+            PostQuitMessage(0);
+        } else if (!g_overlay || !IsWindow(g_overlay)) {
+            // Loader was the only reachable window — exit cleanly.
+            PostQuitMessage(0);
+        }
         return 0;
     case WM_NCHITTEST: {
         LRESULT hit = DefWindowProcW(h, m, w, l);
@@ -154,7 +160,7 @@ static bool EnterOverlayMode(HINSTANCE hi, AppState& st) {
     RegisterClassExW(&wc);
 
     g_overlay = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
+        WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         L"CipherOverlay", L"Cipher",
         WS_POPUP, 0, 0, w, h,
         nullptr, nullptr, hi, nullptr);
@@ -165,11 +171,17 @@ static bool EnterOverlayMode(HINSTANCE hi, AppState& st) {
     MARGINS margins{ -1 };
     DwmExtendFrameIntoClientArea(g_overlay, &margins);
 
-    ShowWindow(g_loader, SW_MINIMIZE);
-    ShowWindow(g_overlay, SW_SHOW);
-    SetForegroundWindow(g_overlay);
+    // Hide loader (do not minimize) until the overlay device is actually live.
+    // Minimize left a dead HWND with no D3D device and blocked WM_CLOSE.
+    ShowWindow(g_loader, SW_HIDE);
 
-    if (!RecreateSwapchainFor(g_overlay)) return false;
+    if (!RecreateSwapchainFor(g_overlay)) {
+        DestroyWindow(g_overlay);
+        g_overlay = nullptr;
+        ShowWindow(g_loader, SW_RESTORE);
+        SetForegroundWindow(g_loader);
+        return false;
+    }
 
     ImGui_ImplWin32_Shutdown();
     ImGui_ImplWin32_Init(g_overlay);
@@ -178,8 +190,12 @@ static bool EnterOverlayMode(HINSTANCE hi, AppState& st) {
     g_attachedMode = true;
     st.mode = AppMode::Overlay;
     st.menuOpen = true;
+    st.attaching = false;
     Overlay::SetClickThrough(g_overlay, false);
     StreamProof::Set(g_overlay, st.misc.streamproof);
+
+    ShowWindow(g_overlay, SW_SHOW);
+    SetForegroundWindow(g_overlay);
     snprintf(st.status, sizeof(st.status), "Overlay live — INSERT toggles menu");
     return true;
 }
@@ -237,33 +253,47 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
         // Loader: poll Fortnite status
         if (st.mode == AppMode::Loader) {
             st.fortniteOpen = IsFortniteRunning();
-            if (st.requestAttach && st.fortniteOpen) {
+            if (st.requestAttach) {
                 st.requestAttach = false;
-                st.attaching = true;
-                if (st.esp.Attach()) {
-                    if (!EnterOverlayMode(hi, st)) {
+                if (!st.fortniteOpen) {
+                    st.attaching = false;
+                    snprintf(st.status, sizeof(st.status), "Fortnite not open");
+                } else {
+                    st.attaching = true;
+                    snprintf(st.status, sizeof(st.status), "Attaching...");
+
+                    if (!st.esp.Attach()) {
+                        st.attaching = false;
+                        DWORD err = GetLastError();
+                        snprintf(st.status, sizeof(st.status),
+                                 "Attach failed (err %lu) — run as Admin / check AC",
+                                 (unsigned long)err);
+                    } else if (!EnterOverlayMode(hi, st)) {
+                        // Overlay create / device recreate failed — bring loader back with a live device.
                         st.attaching = false;
                         st.mode = AppMode::Loader;
-                        ShowWindow(g_loader, SW_RESTORE);
-                        snprintf(st.status, sizeof(st.status), "Overlay failed — try again as Admin");
-                    } else {
-                        st.attaching = false;
+                        g_attachedMode = false;
+                        if (!RecreateSwapchainFor(g_loader)) {
+                            snprintf(st.status, sizeof(st.status), "Device lost — restart Cipher");
+                        } else {
+                            ImGui_ImplWin32_Shutdown();
+                            ImGui_ImplWin32_Init(g_loader);
+                            ShowWindow(g_loader, SW_RESTORE);
+                            SetForegroundWindow(g_loader);
+                            snprintf(st.status, sizeof(st.status), "Overlay failed — try again as Admin");
+                        }
                     }
-                } else {
-                    st.attaching = false;
-                    DWORD err = GetLastError();
-                    snprintf(st.status, sizeof(st.status),
-                             "Attach failed (err %lu) — run as Admin", (unsigned long)err);
+                    // success: EnterOverlayMode already cleared attaching + set mode
                 }
-            } else if (st.requestAttach) {
-                st.requestAttach = false;
-                st.attaching = false;
-                snprintf(st.status, sizeof(st.status), "Fortnite not open");
             }
         } else {
-            // Overlay engines
-            if (st.autoAttach && !st.esp.Attached())
+            // Overlay engines — throttle auto-attach so we don't spam OpenProcess every frame
+            static float attachCooldown = 0.f;
+            attachCooldown -= io.DeltaTime;
+            if (st.autoAttach && !st.esp.Attached() && attachCooldown <= 0.f) {
                 st.esp.Attach();
+                attachCooldown = 1.5f;
+            }
             st.esp.Tick();
             st.aim.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
             st.trigger.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
