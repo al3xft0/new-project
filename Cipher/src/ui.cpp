@@ -292,9 +292,12 @@ static void DrawCombatPage(AppState& st) {
 
 static void DrawMiscPage(AppState& st) {
     SectionHeader("CLIENT");
-    ToggleRow("Streamproof", &st.misc.streamproof);
+    bool prev = st.misc.streamproof;
+    ToggleRow("Streamproof", &st.misc.streamproof, "Hide Cipher from screenshare / Capture");
     ToggleRow("VSync", &st.misc.vsync);
     ToggleRow("Watermark", &st.misc.watermark);
+    // applied every frame from UI_Render using hwnd
+    (void)prev;
 }
 
 static void DrawConfigPage(AppState& st) {
