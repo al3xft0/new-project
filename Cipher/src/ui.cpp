@@ -634,12 +634,19 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     dl->AddRectFilled(c0, c1, IM_COL32(255,255,255, (int)(12 * mf)), 12.f);
     dl->AddRect(c0, c1, IM_COL32(255,255,255, (int)(22 * mf)), 12.f, 0, 1.f);
 
-    // live status string synced to fortniteOpen
+    // Only refresh idle status when not mid-attach and status is still the default poll text
+    // (do not clobber real error messages from Mem::LastError)
     if (!st.attaching) {
-        if (st.fortniteOpen)
-            snprintf(st.status, sizeof(st.status), "Fortnite detected — ready");
-        else
-            snprintf(st.status, sizeof(st.status), "Fortnite not open");
+        bool isIdle =
+            std::strncmp(st.status, "Fortnite", 8) == 0 ||
+            std::strncmp(st.status, "Initializing", 12) == 0 ||
+            st.status[0] == 0;
+        if (isIdle) {
+            if (st.fortniteOpen)
+                snprintf(st.status, sizeof(st.status), "Fortnite detected — ready");
+            else
+                snprintf(st.status, sizeof(st.status), "Fortnite not open — launch game first");
+        }
     }
 
     ImGui::SetCursorScreenPos(ImVec2(cardX + 18.f, cardY + 16.f));
@@ -666,10 +673,18 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     }
     ImGui::PopStyleVar();
 
+    // Always show last status / error under the card
+    ImGui::SetCursorScreenPos(ImVec2(cardX, cardY + 80.f));
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, mf);
+    ImGui::PushTextWrapPos(cardX + cardW);
+    ImGui::TextColored(ImVec4(0.75f, 0.75f, 0.80f, 1.f), "%s", st.status);
+    ImGui::PopTextWrapPos();
+    ImGui::PopStyleVar();
+
     // ATTACH button with glow
     float btnY = cardY + 100.f;
     ImGui::SetCursorScreenPos(ImVec2(cardX, btnY));
-    bool canAttach = st.fortniteOpen && !st.attaching;
+    bool canAttach = !st.attaching;
     ImVec4 btnCol = canAttach ? ImVec4(1,1,1,0.14f) : ImVec4(1,1,1,0.05f);
     ImVec4 btnHov = canAttach ? ImVec4(1,1,1,0.24f) : btnCol;
     ImGui::PushStyleColor(ImGuiCol_Button, btnCol);
@@ -682,9 +697,7 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
         if (canAttach) {
             st.attaching = true;
             st.requestAttach = true;
-            snprintf(st.status, sizeof(st.status), "Attaching...");
-        } else if (!st.fortniteOpen) {
-            snprintf(st.status, sizeof(st.status), "Fortnite not open");
+            snprintf(st.status, sizeof(st.status), "Scanning for Shipping.exe...");
         }
     }
     // outer glow on hover when enabled

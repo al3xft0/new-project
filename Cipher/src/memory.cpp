@@ -1,5 +1,15 @@
 #include "memory.h"
 #include <cstring>
+#include <cstdio>
+
+static char g_lastErr[192] = {};
+const char* Mem::LastError() { return g_lastErr; }
+static void SetErr(const char* s) {
+    snprintf(g_lastErr, sizeof(g_lastErr), "%s", s ? s : "");
+}
+static void SetErrCode(const char* stage, DWORD err) {
+    snprintf(g_lastErr, sizeof(g_lastErr), "%s (win32 %lu)", stage, (unsigned long)err);
+}
 
 static bool EnableDebugPrivilege() {
     HANDLE token = nullptr;
@@ -20,11 +30,14 @@ static bool EnableDebugPrivilege() {
 }
 
 std::optional<GameProcess> Mem::Attach(const wchar_t* exeName) {
-    // Prefer elevated rights when available (OpenProcess ACCESS_DENIED otherwise)
+    SetErr("");
     EnableDebugPrivilege();
 
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snap == INVALID_HANDLE_VALUE) return std::nullopt;
+    if (snap == INVALID_HANDLE_VALUE) {
+        SetErrCode("process snapshot failed", GetLastError());
+        return std::nullopt;
+    }
 
     PROCESSENTRY32W pe{ sizeof(pe) };
     DWORD pid = 0;
@@ -37,30 +50,59 @@ std::optional<GameProcess> Mem::Attach(const wchar_t* exeName) {
         } while (Process32NextW(snap, &pe));
     }
     CloseHandle(snap);
-    if (!pid) return std::nullopt;
+
+    if (!pid) {
+        // helpful: scan for anything Fortnite* so UI can hint
+        HANDLE snap2 = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+        if (snap2 != INVALID_HANDLE_VALUE) {
+            PROCESSENTRY32W pe2{ sizeof(pe2) };
+            if (Process32FirstW(snap2, &pe2)) {
+                do {
+                    if (wcsstr(pe2.szExeFile, L"Fortnite") || wcsstr(pe2.szExeFile, L"fortnite")) {
+                        char narrow[128]{};
+                        WideCharToMultiByte(CP_UTF8, 0, pe2.szExeFile, -1, narrow, 128, nullptr, nullptr);
+                        snprintf(g_lastErr, sizeof(g_lastErr),
+                                 "Shipping.exe not found — saw %s (pid %lu)", narrow, (unsigned long)pe2.th32ProcessID);
+                        CloseHandle(snap2);
+                        return std::nullopt;
+                    }
+                } while (Process32NextW(snap2, &pe2));
+            }
+            CloseHandle(snap2);
+        }
+        SetErr("FortniteClient-Win64-Shipping.exe not running");
+        return std::nullopt;
+    }
 
     GameProcess gp;
     gp.pid = pid;
     gp.name = exeName;
 
-    // Minimal rights first — not PROCESS_ALL_ACCESS
-    const DWORD kReadRights =
-        PROCESS_VM_READ | PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION;
-    const DWORD kFullRights =
+    // Not PROCESS_ALL_ACCESS — only what we need
+    const DWORD kFull =
         PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION;
+    const DWORD kRead =
+        PROCESS_VM_READ | PROCESS_QUERY_INFORMATION;
 
-    gp.handle = OpenProcess(kFullRights, FALSE, pid);
+    SetLastError(0);
+    gp.handle = OpenProcess(kFull, FALSE, pid);
     if (!gp.handle) {
-        // retry after privilege (already tried enable); fall back to read-only
+        DWORD e1 = GetLastError();
         EnableDebugPrivilege();
-        gp.handle = OpenProcess(kFullRights, FALSE, pid);
+        SetLastError(0);
+        gp.handle = OpenProcess(kFull, FALSE, pid);
+        if (!gp.handle) {
+            DWORD e2 = GetLastError();
+            gp.handle = OpenProcess(kRead, FALSE, pid);
+            if (!gp.handle) {
+                SetErrCode("OpenProcess denied — run as Admin / AC blocked", e2 ? e2 : e1);
+                return std::nullopt;
+            }
+            // read-only handle is still usable for ESP
+        }
     }
-    if (!gp.handle) {
-        gp.handle = OpenProcess(kReadRights, FALSE, pid);
-    }
-    if (!gp.handle) return std::nullopt;
 
-    // Module base via toolhelp
+    // Module base
     HANDLE msnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
     if (msnap != INVALID_HANDLE_VALUE) {
         MODULEENTRY32W me{ sizeof(me) };
@@ -75,7 +117,6 @@ std::optional<GameProcess> Mem::Attach(const wchar_t* exeName) {
         CloseHandle(msnap);
     }
 
-    // Fallback: EnumProcessModules if toolhelp missed it
     if (!gp.base) {
         HMODULE mods[1024];
         DWORD needed = 0;
@@ -85,10 +126,14 @@ std::optional<GameProcess> Mem::Attach(const wchar_t* exeName) {
     }
 
     if (!gp.base) {
+        DWORD e = GetLastError();
         CloseHandle(gp.handle);
         gp.handle = nullptr;
+        SetErrCode("module base failed (AC may strip module list)", e);
         return std::nullopt;
     }
+
+    SetErr("");
     return gp;
 }
 

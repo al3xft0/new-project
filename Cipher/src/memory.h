@@ -17,6 +17,8 @@ struct GameProcess {
 };
 
 namespace Mem {
+    // last failure reason for UI (empty on success)
+    const char* LastError();
     std::optional<GameProcess> Attach(const wchar_t* exeName = L"FortniteClient-Win64-Shipping.exe");
     void Close(GameProcess& p);
     bool IsValid(const GameProcess& p);

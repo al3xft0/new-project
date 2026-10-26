@@ -5,6 +5,7 @@
 #include "embed_logo_sm.h"
 #include "embed_logo_lg.h"
 #include "overlay.h"
+#include "memory.h"
 #include "streamproof.h"
 #include "imgui.h"
 #include "imgui_impl_win32.h"
@@ -323,24 +324,24 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
             st.fortniteOpen = IsFortniteRunning();
             if (st.requestAttach) {
                 st.requestAttach = false;
-                if (!st.fortniteOpen) {
+                st.attaching = true;
+                snprintf(st.status, sizeof(st.status), "Scanning for Shipping.exe...");
+
+                // Always try — do not trust the poll flag alone
+                if (!st.esp.Attach()) {
                     st.attaching = false;
-                    snprintf(st.status, sizeof(st.status), "Fortnite not open");
-                } else {
-                    st.attaching = true;
-                    snprintf(st.status, sizeof(st.status), "Attaching...");
-                    if (!st.esp.Attach()) {
-                        st.attaching = false;
-                        DWORD err = GetLastError();
-                        snprintf(st.status, sizeof(st.status),
-                                 "Attach failed (err %lu) — run as Admin", (unsigned long)err);
-                    } else if (!EnterOverlayMode(hi, st)) {
-                        st.attaching = false;
-                        st.mode = AppMode::Loader;
-                        g_attachedMode = false;
-                        snprintf(st.status, sizeof(st.status), "Overlay failed — try again as Admin");
-                    }
+                    const char* why = Mem::LastError();
+                    if (why && why[0])
+                        snprintf(st.status, sizeof(st.status), "%s", why);
+                    else
+                        snprintf(st.status, sizeof(st.status), "Attach failed");
+                } else if (!EnterOverlayMode(hi, st)) {
+                    st.attaching = false;
+                    st.mode = AppMode::Loader;
+                    g_attachedMode = false;
+                    snprintf(st.status, sizeof(st.status), "Process OK — overlay create failed");
                 }
+                // success: EnterOverlayMode sets status + attaching=false
             }
         } else {
             // Overlay engines — throttle auto-attach
