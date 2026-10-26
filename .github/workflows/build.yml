@@ -53,9 +53,19 @@ jobs:
           $root = $env:ROOT
           $out = Join-Path $env:GITHUB_WORKSPACE "cipher-out"
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          $exe = Get-ChildItem -Path "$root/build" -Recurse -Filter "Cipher.exe" | Select-Object -First 1
-          if (-not $exe) { throw "Cipher.exe not found under $root/build" }
-          Copy-Item $exe.FullName $out
+
+          $cipher = Get-ChildItem -Path "$root/build" -Recurse -Filter "Cipher.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $admin  = Get-ChildItem -Path "$root/build" -Recurse -Filter "CipherAdmin.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+
+          if (-not $cipher) { throw "Cipher.exe not found under $root/build" }
+          Copy-Item $cipher.FullName $out
+
+          if ($admin) {
+            Copy-Item $admin.FullName $out
+          } else {
+            Write-Host "WARN: CipherAdmin.exe not found"
+          }
+
           $assets = Join-Path $root "assets"
           if (Test-Path $assets) {
             Copy-Item -Recurse -Force $assets (Join-Path $out "assets")
