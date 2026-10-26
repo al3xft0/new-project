@@ -1,12 +1,11 @@
 #pragma once
-#include <Windows.h>
+#include <windows.h>
 
 namespace StreamProof {
-    // WDA_EXCLUDEFROMCAPTURE = 0x11 (Win10 2004+)
-    inline bool Set(HWND hwnd, bool enabled) {
-        if (!hwnd) return false;
-        const DWORD WDA_NONE = 0x0;
-        const DWORD WDA_EXCLUDEFROMCAPTURE = 0x11;
-        return SetWindowDisplayAffinity(hwnd, enabled ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE) != FALSE;
+    inline constexpr DWORD WDA_NONE = 0x0;
+    inline constexpr DWORD WDA_EXCLUDEFROMCAPTURE = 0x11;
+
+    inline void Set(HWND hwnd, bool enabled) {
+        SetWindowDisplayAffinity(hwnd, enabled ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
     }
 }
