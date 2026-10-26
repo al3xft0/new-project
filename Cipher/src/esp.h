@@ -74,9 +74,12 @@ private:
     FMatrix viewProj_{};
     int localTeam_ = -1;
     uintptr_t localPawn_ = 0;
+    uintptr_t ResolveWorld() const;
     bool ReadViewMatrix();
     bool EnumPlayers();
     bool ReadBone(uintptr_t mesh, int index, FVector& out);
+    uintptr_t world_ = 0;
+    uintptr_t localPC_ = 0;
     void DrawBox(const EspPlayer& p, ImU32 col);
     void DrawSkeleton(const EspPlayer& p);
     void DrawRadar();

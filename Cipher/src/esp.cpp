@@ -45,120 +45,223 @@ bool EspSystem::Attached() const {
     return Mem::IsValid(proc);
 }
 
-bool EspSystem::ReadViewMatrix() {
-    // Prefer explicit ViewMatrix RVA if set; else build from camera cache
-    if (off::ViewMatrix && proc.base) {
-        return Mem::ReadRaw(proc.handle, proc.base + off::ViewMatrix, &viewProj_, sizeof(viewProj_));
+uintptr_t EspSystem::ResolveWorld() const {
+    if (!proc.base || !proc.handle) return 0;
+
+    // Preferred: GEngine -> GameViewport -> World (no decrypt)
+    if (off::GEngine) {
+        uintptr_t engine = Mem::ReadPtr(proc.handle, proc.base + off::GEngine);
+        if (engine) {
+            uintptr_t viewport = Mem::ReadPtr(proc.handle, engine + off::GameViewport);
+            if (viewport) {
+                uintptr_t world = Mem::ReadPtr(proc.handle, viewport + off::ViewportWorld);
+                if (world) return world;
+            }
+        }
     }
-    // Camera chain: GWorld → GameInstance → LocalPlayers[0] → PlayerController → CameraManager → Cache
-    if (!off::GWorld || !proc.base) return false;
-    uintptr_t world = Mem::ReadPtr(proc.handle, proc.base + off::GWorld);
-    if (!world) return false;
-    uintptr_t gi = Mem::ReadPtr(proc.handle, world + off::GameInstance);
+
+    // Fallback: direct GWorld RVA (may be encrypted on some builds)
+    if (off::GWorld) {
+        uintptr_t world = Mem::ReadPtr(proc.handle, proc.base + off::GWorld);
+        if (world) return world;
+    }
+    return 0;
+}
+
+bool EspSystem::ReadViewMatrix() {
+    world_ = ResolveWorld();
+    if (!world_) return false;
+
+    uintptr_t gi = Mem::ReadPtr(proc.handle, world_ + off::GameInstance);
     if (!gi) return false;
-    uintptr_t lpArr = Mem::ReadPtr(proc.handle, gi + off::LocalPlayers);
-    if (!lpArr) return false;
-    uintptr_t lp = Mem::ReadPtr(proc.handle, lpArr); // TArray data[0]
+
+    // LocalPlayers is a TArray<ULocalPlayer*>
+    uintptr_t lpData = Mem::ReadPtr(proc.handle, gi + off::LocalPlayers);
+    if (!lpData) return false;
+    uintptr_t lp = Mem::ReadPtr(proc.handle, lpData);
     if (!lp) return false;
+
     uintptr_t pc = Mem::ReadPtr(proc.handle, lp + off::PlayerController);
     if (!pc) return false;
+    localPC_ = pc;
     localPawn_ = Mem::ReadPtr(proc.handle, pc + off::AcknowledgedPawn);
+
     uintptr_t cam = Mem::ReadPtr(proc.handle, pc + off::PlayerCameraManager);
     if (!cam) return false;
 
-    // Read POV location / rotation / FOV — layout FILL
-    FVector loc = Mem::Read<FVector>(proc.handle, cam + off::CameraCache + off::CameraLocation);
-    // Minimal projection: if full matrix unavailable, identity-ish fails open
-    frame.cameraLoc = loc;
-    float fov = Mem::Read<float>(proc.handle, cam + off::CameraCache + off::CameraFOV);
-    if (fov > 1.f && fov < 170.f) frame.cameraFov = fov;
+    FVector loc{};
+    FRotator rot{};
+    float fov = 80.f;
 
-    // Without a real view-projection matrix from the game, W2S will be wrong.
-    // Callers must fill off::ViewMatrix or extend this to build VP from rotation+FOV.
-    (void)viewProj_;
-    return off::ViewMatrix != 0;
+    // POV inside CameraCachePrivate
+    const uintptr_t cache = cam + off::CameraCache;
+    loc = Mem::Read<FVector>(proc.handle, cache + off::POV_Location);
+    rot = Mem::Read<FRotator>(proc.handle, cache + off::POV_Rotation);
+    fov = Mem::Read<float>(proc.handle, cache + off::POV_FOV);
+
+    // Fallback pointer fields if cache looks empty
+    if (loc.X == 0 && loc.Y == 0 && loc.Z == 0 && off::CameraLocationPtr) {
+        loc = Mem::Read<FVector>(proc.handle, cam + off::CameraLocationPtr);
+        rot = Mem::Read<FRotator>(proc.handle, cam + off::CameraRotationPtr);
+    }
+    if (fov < 1.f || fov > 170.f) fov = 80.f;
+
+    frame.cameraLoc = loc;
+    frame.cameraFov = fov;
+
+    // Optional direct ViewMatrix RVA
+    if (off::ViewMatrix && proc.base) {
+        if (Mem::ReadRaw(proc.handle, proc.base + off::ViewMatrix, &viewProj_, sizeof(viewProj_)))
+            return true;
+    }
+
+    float sw = (float)GetSystemMetrics(SM_CXSCREEN);
+    float sh = (float)GetSystemMetrics(SM_CYSCREEN);
+    float aspect = (sh > 1.f) ? (sw / sh) : (16.f / 9.f);
+    viewProj_ = BuildViewProjection(loc, rot, fov, aspect);
+    return true;
 }
 
 bool EspSystem::ReadBone(uintptr_t mesh, int index, FVector& out) {
     if (!mesh) return false;
     uintptr_t bones = Mem::ReadPtr(proc.handle, mesh + off::BoneArray);
     if (!bones) bones = Mem::ReadPtr(proc.handle, mesh + off::BoneArrayCached);
+    if (!bones && off::CurrentBoneArray)
+        bones = Mem::ReadPtr(proc.handle, mesh + off::CurrentBoneArray);
     if (!bones) return false;
-    // FTransform array
+
+    const uintptr_t stride = off::BoneStride ? off::BoneStride : 0x60;
     FTransform bt{};
-    if (!Mem::ReadRaw(proc.handle, bones + static_cast<uintptr_t>(index) * sizeof(FTransform), &bt, sizeof(bt)))
+    if (!Mem::ReadRaw(proc.handle, bones + static_cast<uintptr_t>(index) * stride, &bt, sizeof(bt)))
         return false;
+
     FTransform c2w{};
     if (!Mem::ReadRaw(proc.handle, mesh + off::ComponentToWorld, &c2w, sizeof(c2w)))
         return false;
+
     out = TransformPoint(c2w, bt.Translation);
     return true;
 }
 
 bool EspSystem::EnumPlayers() {
     frame.players.clear();
-    if (!off::GWorld || !proc.base) return false;
+    if (!world_ && !(world_ = ResolveWorld())) return false;
 
-    uintptr_t world = Mem::ReadPtr(proc.handle, proc.base + off::GWorld);
-    if (!world) return false;
-    uintptr_t level = Mem::ReadPtr(proc.handle, world + off::PersistentLevel);
-    if (!level) return false;
-    uintptr_t actors = Mem::ReadPtr(proc.handle, level + off::Actors);
-    int count = Mem::Read<int>(proc.handle, level + off::ActorsCount);
-    if (!actors || count <= 0 || count > 20000) return false;
-
-    const float sw = ImGui::GetIO().DisplaySize.x;
-    const float sh = ImGui::GetIO().DisplaySize.y;
-
-    // local team from local pawn playerstate
+    const float sw = (float)GetSystemMetrics(SM_CXSCREEN);
+    const float sh = (float)GetSystemMetrics(SM_CYSCREEN);
     localTeam_ = -1;
+
+    // Local team from local pawn's player state
     if (localPawn_) {
-        uintptr_t ps = Mem::ReadPtr(proc.handle, localPawn_ + off::PlayerState);
-        if (ps) localTeam_ = Mem::Read<int>(proc.handle, ps + off::TeamIndex);
+        uintptr_t lps = Mem::ReadPtr(proc.handle, localPawn_ + off::PlayerState);
+        if (lps) localTeam_ = Mem::Read<int>(proc.handle, lps + off::TeamIndex);
     }
 
-    int cap = (std::min)(count, 4096);
-    for (int i = 0; i < cap; i++) {
-        uintptr_t actor = Mem::ReadPtr(proc.handle, actors + static_cast<uintptr_t>(i) * 8);
-        if (!actor || actor == localPawn_) {
-            if (!cfg.showSelf && actor == localPawn_) continue;
-            if (!actor) continue;
-        }
+    // Preferred: GameState -> PlayerArray (TArray of APlayerState*)
+    uintptr_t gs = Mem::ReadPtr(proc.handle, world_ + off::GameState);
+    uintptr_t data = 0;
+    int count = 0;
+    if (gs && off::PlayerArray) {
+        data = Mem::ReadPtr(proc.handle, gs + off::PlayerArray);
+        count = Mem::Read<int>(proc.handle, gs + off::PlayerArray + 0x8);
+    }
 
-        uintptr_t mesh = Mem::ReadPtr(proc.handle, actor + off::Mesh);
-        uintptr_t root = Mem::ReadPtr(proc.handle, actor + off::RootComponent);
+    // Fallback: PersistentLevel actors TArray
+    if (!data || count <= 0 || count > 200) {
+        uintptr_t level = Mem::ReadPtr(proc.handle, world_ + off::PersistentLevel);
+        if (!level) return false;
+        uintptr_t actorsOff = off::Actors ? off::Actors : off::LevelActors;
+        data = Mem::ReadPtr(proc.handle, level + actorsOff);
+        count = Mem::Read<int>(proc.handle, level + actorsOff + 0x8);
+        if (!data || count <= 0 || count > 5000) return false;
+
+        for (int i = 0; i < count; i++) {
+            uintptr_t actor = Mem::ReadPtr(proc.handle, data + static_cast<uintptr_t>(i) * 8);
+            if (!actor || actor == localPawn_) continue;
+            uintptr_t mesh = Mem::ReadPtr(proc.handle, actor + off::Mesh);
+            if (!mesh) continue;
+            uintptr_t root = Mem::ReadPtr(proc.handle, actor + off::RootComponent);
+            if (!root) continue;
+            uintptr_t ps = Mem::ReadPtr(proc.handle, actor + off::PlayerState);
+            if (!ps) continue; // filter non-pawns roughly
+
+            FVector loc = Mem::Read<FVector>(proc.handle, root + off::RelativeLocation);
+            float dist = frame.cameraLoc.DistTo(loc) / 100.f;
+            if (dist <= 0.05f || dist > cfg.maxDistance) continue;
+
+            int team = Mem::Read<int>(proc.handle, ps + off::TeamIndex);
+            if (cfg.teamCheck && localTeam_ >= 0 && team == localTeam_) continue;
+
+            bool downed = off::bIsDBNO && Mem::Read<uint8_t>(proc.handle, actor + off::bIsDBNO) != 0;
+            if (downed && !cfg.showDowned) continue;
+
+            EspPlayer pl;
+            pl.pawn = actor;
+            pl.root = loc;
+            pl.distance = dist;
+            pl.team = team;
+            pl.downed = downed;
+            pl.name = "Player";
+            if (!ReadBone(mesh, off::bone::Head, pl.head))
+                pl.head = loc + FVector{ 0, 0, 90.f };
+
+            pl.validScreen = WorldToScreen(pl.root, viewProj_, sw, sh, pl.rootS)
+                          && WorldToScreen(pl.head, viewProj_, sw, sh, pl.headS);
+
+            const int boneIdx[EspPlayer::kBones] = {
+                off::bone::Head, off::bone::Neck, off::bone::Chest,
+                off::bone::LShoulder, off::bone::LElbow, off::bone::LHand,
+                off::bone::RShoulder, off::bone::RElbow, off::bone::RHand,
+                off::bone::Pelvis,
+                off::bone::LHip, off::bone::LKnee, off::bone::LFoot,
+                off::bone::RHip, off::bone::RKnee, off::bone::RFoot
+            };
+            for (int b = 0; b < EspPlayer::kBones; b++) {
+                FVector wb;
+                if (ReadBone(mesh, boneIdx[b], wb))
+                    pl.boneOk[b] = WorldToScreen(wb, viewProj_, sw, sh, pl.bones[b]);
+            }
+            frame.players.push_back(std::move(pl));
+        }
+        frame.playerCount = (int)frame.players.size();
+        return true;
+    }
+
+    // PlayerArray path
+    if (count > 128) count = 128;
+    for (int i = 0; i < count; i++) {
+        uintptr_t ps = Mem::ReadPtr(proc.handle, data + static_cast<uintptr_t>(i) * 8);
+        if (!ps) continue;
+        uintptr_t pawn = Mem::ReadPtr(proc.handle, ps + off::PawnPrivate);
+        if (!pawn || pawn == localPawn_) continue;
+
+        uintptr_t mesh = Mem::ReadPtr(proc.handle, pawn + off::Mesh);
+        uintptr_t root = Mem::ReadPtr(proc.handle, pawn + off::RootComponent);
         if (!mesh || !root) continue;
 
         FVector loc = Mem::Read<FVector>(proc.handle, root + off::RelativeLocation);
-        float dist = frame.cameraLoc.DistTo(loc) / 100.f; // cm → m approx
-        if (dist <= 0.1f || dist > cfg.maxDistance) continue;
+        float dist = frame.cameraLoc.DistTo(loc) / 100.f;
+        if (dist <= 0.05f || dist > cfg.maxDistance) continue;
 
-        uintptr_t ps = Mem::ReadPtr(proc.handle, actor + off::PlayerState);
-        int team = ps ? Mem::Read<int>(proc.handle, ps + off::TeamIndex) : -1;
-        if (cfg.teamCheck && localTeam_ >= 0 && team == localTeam_ && actor != localPawn_)
-            continue;
+        int team = Mem::Read<int>(proc.handle, ps + off::TeamIndex);
+        if (cfg.teamCheck && localTeam_ >= 0 && team == localTeam_) continue;
 
-        bool downed = false;
-        if (off::bIsDBNO)
-            downed = Mem::Read<uint8_t>(proc.handle, actor + off::bIsDBNO) != 0;
+        bool downed = off::bIsDBNO && Mem::Read<uint8_t>(proc.handle, pawn + off::bIsDBNO) != 0;
         if (downed && !cfg.showDowned) continue;
 
         EspPlayer pl;
-        pl.pawn = actor;
+        pl.pawn = pawn;
         pl.root = loc;
         pl.distance = dist;
         pl.team = team;
         pl.downed = downed;
         pl.name = "Player";
-
-        // head bone
         if (!ReadBone(mesh, off::bone::Head, pl.head))
             pl.head = loc + FVector{ 0, 0, 90.f };
 
         pl.validScreen = WorldToScreen(pl.root, viewProj_, sw, sh, pl.rootS)
                       && WorldToScreen(pl.head, viewProj_, sw, sh, pl.headS);
 
-        // skeleton bones
         const int boneIdx[EspPlayer::kBones] = {
             off::bone::Head, off::bone::Neck, off::bone::Chest,
             off::bone::LShoulder, off::bone::LElbow, off::bone::LHand,
@@ -169,14 +272,12 @@ bool EspSystem::EnumPlayers() {
         };
         for (int b = 0; b < EspPlayer::kBones; b++) {
             FVector wb;
-            if (ReadBone(mesh, boneIdx[b], wb)) {
+            if (ReadBone(mesh, boneIdx[b], wb))
                 pl.boneOk[b] = WorldToScreen(wb, viewProj_, sw, sh, pl.bones[b]);
-            }
         }
-
         frame.players.push_back(std::move(pl));
     }
-    frame.playerCount = static_cast<int>(frame.players.size());
+    frame.playerCount = (int)frame.players.size();
     return true;
 }
 

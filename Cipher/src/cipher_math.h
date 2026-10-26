@@ -1,6 +1,7 @@
 #pragma once
 #include <cmath>
 #include <cstdint>
+#include <algorithm>
 
 struct FVector {
     float X = 0, Y = 0, Z = 0;
@@ -17,6 +18,10 @@ struct FVector2D {
     float X = 0, Y = 0;
 };
 
+struct FRotator {
+    float Pitch = 0, Yaw = 0, Roll = 0;
+};
+
 struct FMatrix {
     float M[4][4]{};
 };
@@ -25,10 +30,13 @@ struct FQuat {
     float X = 0, Y = 0, Z = 0, W = 1;
 };
 
+// UE FTransform is often 0x60 bytes (aligned). We only need rotation + translation for bone read.
 struct FTransform {
-    FQuat Rotation;
-    FVector Translation;
+    FQuat   Rotation{};
+    FVector Translation{};
+    float   TranslationPad = 0;
     FVector Scale3D{ 1, 1, 1 };
+    float   ScalePad = 0;
 };
 
 inline FMatrix QuaternionToMatrix(const FQuat& q) {
@@ -54,6 +62,55 @@ inline FVector TransformPoint(const FTransform& t, const FVector& p) {
     return o;
 }
 
+// Build view-projection from camera location + UE rotator (degrees) + FOV
+inline FMatrix BuildViewProjection(const FVector& loc, const FRotator& rot, float fovDeg, float aspect) {
+    const float deg2rad = 0.01745329251f;
+    float pitch = rot.Pitch * deg2rad;
+    float yaw   = rot.Yaw * deg2rad;
+    float cp = std::cos(pitch), sp = std::sin(pitch);
+    float cy = std::cos(yaw),   sy = std::sin(yaw);
+
+    // UE forward / right / up
+    FVector forward{ cp * cy, cp * sy, sp };
+    FVector right{ -sy, cy, 0.f };
+    FVector up{
+        -sp * cy,
+        -sp * sy,
+        cp
+    };
+
+    // View matrix (camera)
+    FMatrix v{};
+    v.M[0][0] = right.X;   v.M[0][1] = up.X;   v.M[0][2] = forward.X; v.M[0][3] = 0;
+    v.M[1][0] = right.Y;   v.M[1][1] = up.Y;   v.M[1][2] = forward.Y; v.M[1][3] = 0;
+    v.M[2][0] = right.Z;   v.M[2][1] = up.Z;   v.M[2][2] = forward.Z; v.M[2][3] = 0;
+    v.M[3][0] = -(right.X * loc.X + right.Y * loc.Y + right.Z * loc.Z);
+    v.M[3][1] = -(up.X * loc.X + up.Y * loc.Y + up.Z * loc.Z);
+    v.M[3][2] = -(forward.X * loc.X + forward.Y * loc.Y + forward.Z * loc.Z);
+    v.M[3][3] = 1.f;
+
+    float fovRad = (std::max)(1.f, fovDeg) * deg2rad;
+    float f = 1.f / std::tan(fovRad * 0.5f);
+    float zn = 0.1f, zf = 100000.f;
+    FMatrix p{};
+    p.M[0][0] = f / aspect;
+    p.M[1][1] = f;
+    p.M[2][2] = zf / (zf - zn);
+    p.M[2][3] = 1.f;
+    p.M[3][2] = -zn * zf / (zf - zn);
+
+    // vp = view * proj (row-major multiply)
+    FMatrix out{};
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            out.M[i][j] =
+                v.M[i][0] * p.M[0][j] + v.M[i][1] * p.M[1][j] +
+                v.M[i][2] * p.M[2][j] + v.M[i][3] * p.M[3][j];
+        }
+    }
+    return out;
+}
+
 inline bool WorldToScreen(const FVector& world, const FMatrix& vp, float screenW, float screenH, FVector2D& out) {
     float w = world.X * vp.M[0][3] + world.Y * vp.M[1][3] + world.Z * vp.M[2][3] + vp.M[3][3];
     if (w < 0.001f) return false;
@@ -62,5 +119,5 @@ inline bool WorldToScreen(const FVector& world, const FMatrix& vp, float screenW
     float y = (world.X * vp.M[0][1] + world.Y * vp.M[1][1] + world.Z * vp.M[2][1] + vp.M[3][1]) * inv;
     out.X = (screenW * 0.5f) + (x * screenW * 0.5f);
     out.Y = (screenH * 0.5f) - (y * screenH * 0.5f);
-    return out.X >= -50 && out.X <= screenW + 50 && out.Y >= -50 && out.Y <= screenH + 50;
+    return out.X >= -200 && out.X <= screenW + 200 && out.Y >= -200 && out.Y <= screenH + 200;
 }
