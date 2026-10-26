@@ -22,11 +22,8 @@ static ImU32 Darken(ImU32 c) {
 }
 
 bool EspSystem::Attach() {
+    // Real game process only — not the EAC launcher
     auto p = Mem::Attach(L"FortniteClient-Win64-Shipping.exe");
-    if (!p) {
-        // also try shipping without path variants
-        p = Mem::Attach(L"FortniteClient-Win64-Shipping_EAC_EOS.exe");
-    }
     if (!p) return false;
     std::lock_guard lock(mu_);
     if (proc.handle) Mem::Close(proc);

@@ -1,7 +1,28 @@
 #include "memory.h"
 #include <cstring>
 
+static bool EnableDebugPrivilege() {
+    HANDLE token = nullptr;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY, &token))
+        return false;
+    LUID luid{};
+    if (!LookupPrivilegeValueW(nullptr, SE_DEBUG_NAME, &luid)) {
+        CloseHandle(token);
+        return false;
+    }
+    TOKEN_PRIVILEGES tp{};
+    tp.PrivilegeCount = 1;
+    tp.Privileges[0].Luid = luid;
+    tp.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    BOOL ok = AdjustTokenPrivileges(token, FALSE, &tp, sizeof(tp), nullptr, nullptr);
+    CloseHandle(token);
+    return ok && GetLastError() != ERROR_NOT_ALL_ASSIGNED;
+}
+
 std::optional<GameProcess> Mem::Attach(const wchar_t* exeName) {
+    // Prefer elevated rights when available (OpenProcess ACCESS_DENIED otherwise)
+    EnableDebugPrivilege();
+
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snap == INVALID_HANDLE_VALUE) return std::nullopt;
 
@@ -21,11 +42,25 @@ std::optional<GameProcess> Mem::Attach(const wchar_t* exeName) {
     GameProcess gp;
     gp.pid = pid;
     gp.name = exeName;
-    gp.handle = OpenProcess(
-        PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION,
-        FALSE, pid);
+
+    // Minimal rights first — not PROCESS_ALL_ACCESS
+    const DWORD kReadRights =
+        PROCESS_VM_READ | PROCESS_QUERY_INFORMATION | PROCESS_QUERY_LIMITED_INFORMATION;
+    const DWORD kFullRights =
+        PROCESS_VM_READ | PROCESS_VM_WRITE | PROCESS_VM_OPERATION | PROCESS_QUERY_INFORMATION;
+
+    gp.handle = OpenProcess(kFullRights, FALSE, pid);
+    if (!gp.handle) {
+        // retry after privilege (already tried enable); fall back to read-only
+        EnableDebugPrivilege();
+        gp.handle = OpenProcess(kFullRights, FALSE, pid);
+    }
+    if (!gp.handle) {
+        gp.handle = OpenProcess(kReadRights, FALSE, pid);
+    }
     if (!gp.handle) return std::nullopt;
 
+    // Module base via toolhelp
     HANDLE msnap = CreateToolhelp32Snapshot(TH32CS_SNAPMODULE | TH32CS_SNAPMODULE32, pid);
     if (msnap != INVALID_HANDLE_VALUE) {
         MODULEENTRY32W me{ sizeof(me) };
@@ -39,8 +74,19 @@ std::optional<GameProcess> Mem::Attach(const wchar_t* exeName) {
         }
         CloseHandle(msnap);
     }
+
+    // Fallback: EnumProcessModules if toolhelp missed it
+    if (!gp.base) {
+        HMODULE mods[1024];
+        DWORD needed = 0;
+        if (EnumProcessModules(gp.handle, mods, sizeof(mods), &needed) && needed >= sizeof(HMODULE)) {
+            gp.base = reinterpret_cast<uintptr_t>(mods[0]);
+        }
+    }
+
     if (!gp.base) {
         CloseHandle(gp.handle);
+        gp.handle = nullptr;
         return std::nullopt;
     }
     return gp;
@@ -85,7 +131,6 @@ static bool MatchPattern(const uint8_t* data, const uint8_t* pat, const char* ma
 }
 
 std::optional<uintptr_t> Mem::PatternScan(HANDLE h, uintptr_t start, size_t size, const char* ida) {
-    // ida style: "48 8B 05 ?? ?? ?? ?? 48 85 C0"
     std::vector<uint8_t> pat;
     std::string mask;
     for (const char* p = ida; *p; ) {

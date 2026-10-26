@@ -6,6 +6,8 @@
 #include <optional>
 #include <string>
 #include <vector>
+#include <psapi.h>
+#pragma comment(lib, "psapi.lib")
 
 struct GameProcess {
     DWORD   pid = 0;

@@ -126,6 +126,60 @@ static LRESULT WINAPI OverlayProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     return DefWindowProcW(h, m, w, l);
 }
 
+
+struct EnumFindCtx { DWORD pid; HWND hwnd; };
+
+static BOOL CALLBACK EnumFindFortniteWnd(HWND hwnd, LPARAM lp) {
+    auto* ctx = reinterpret_cast<EnumFindCtx*>(lp);
+    DWORD wpid = 0;
+    GetWindowThreadProcessId(hwnd, &wpid);
+    if (wpid != ctx->pid) return TRUE;
+    if (!IsWindowVisible(hwnd)) return TRUE;
+    // skip tiny tool windows — want the main game window
+    RECT rc{};
+    if (!GetWindowRect(hwnd, &rc)) return TRUE;
+    int ww = rc.right - rc.left, hh = rc.bottom - rc.top;
+    if (ww < 200 || hh < 200) return TRUE;
+    wchar_t cls[64]{};
+    GetClassNameW(hwnd, cls, 64);
+    // Unreal / Fortnite main window class is typically UnrealWindow
+    ctx->hwnd = hwnd;
+    return FALSE; // stop
+}
+
+static HWND FindFortniteWindow(DWORD pid) {
+    if (!pid) return nullptr;
+    EnumFindCtx ctx{ pid, nullptr };
+    EnumWindows(EnumFindFortniteWnd, reinterpret_cast<LPARAM>(&ctx));
+    return ctx.hwnd;
+}
+
+static bool SyncOverlayToGame(HWND overlay, HWND game, bool* outVisible) {
+    if (outVisible) *outVisible = false;
+    if (!overlay || !game || !IsWindow(game)) return false;
+
+    // minimized / iconic → hide overlay so FOV does not float on desktop
+    if (IsIconic(game) || !IsWindowVisible(game)) {
+        ShowWindow(overlay, SW_HIDE);
+        return false;
+    }
+
+    RECT crc{};
+    if (!GetClientRect(game, &crc)) return false;
+    POINT tl{ crc.left, crc.top };
+    POINT br{ crc.right, crc.bottom };
+    ClientToScreen(game, &tl);
+    ClientToScreen(game, &br);
+    int x = tl.x, y = tl.y, w = br.x - tl.x, h = br.y - tl.y;
+    if (w < 64 || h < 64) return false;
+
+    ShowWindow(overlay, SW_SHOWNA);
+    SetWindowPos(overlay, HWND_TOPMOST, x, y, w, h,
+                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+    if (outVisible) *outVisible = true;
+    return true;
+}
+
 static bool IsFortniteRunning() {
     HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
     if (snap == INVALID_HANDLE_VALUE) return false;
@@ -133,8 +187,7 @@ static bool IsFortniteRunning() {
     bool found = false;
     if (Process32FirstW(snap, &pe)) {
         do {
-            if (_wcsicmp(pe.szExeFile, L"FortniteClient-Win64-Shipping.exe") == 0 ||
-                _wcsicmp(pe.szExeFile, L"FortniteClient-Win64-Shipping_EAC_EOS.exe") == 0) {
+            if (_wcsicmp(pe.szExeFile, L"FortniteClient-Win64-Shipping.exe") == 0) {
                 found = true; break;
             }
         } while (Process32NextW(snap, &pe));
@@ -297,14 +350,28 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
                 st.esp.Attach();
                 attachCooldown = 1.5f;
             }
-            st.esp.Tick();
-            st.aim.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-            st.trigger.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-            st.exploits.Tick(st.esp);
+
+            // Pin overlay to the real Fortnite window (client area)
+            static HWND gameWnd = nullptr;
+            bool gameVisible = false;
+            if (st.esp.Attached()) {
+                if (!gameWnd || !IsWindow(gameWnd))
+                    gameWnd = FindFortniteWindow(st.esp.proc.pid);
+                SyncOverlayToGame(g_overlay, gameWnd, &gameVisible);
+            } else {
+                gameWnd = nullptr;
+            }
+
+            if (gameVisible) {
+                st.esp.Tick();
+                st.aim.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+                st.trigger.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+                st.exploits.Tick(st.esp);
+            }
             if (st.misc.streamproof)
                 StreamProof::Set(g_overlay, true);
 
-            // Single INSERT edge-detect (only toggle path — no RegisterHotKey, no ImGui key)
+            // Single INSERT edge-detect
             static bool insertWasDown = false;
             bool insertDown = (GetAsyncKeyState(VK_INSERT) & 0x8000) != 0;
             if (insertDown && !insertWasDown) {
@@ -314,6 +381,14 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
                     Overlay::SetClickThrough(g_overlay, !st.menuOpen);
             }
             insertWasDown = insertDown;
+
+            // status: real attach vs window
+            if (st.esp.Attached() && gameWnd)
+                snprintf(st.status, sizeof(st.status), "pid %lu | live", (unsigned long)st.esp.proc.pid);
+            else if (st.esp.Attached())
+                snprintf(st.status, sizeof(st.status), "pid %lu | no game hwnd", (unsigned long)st.esp.proc.pid);
+            else
+                snprintf(st.status, sizeof(st.status), "not attached");
         }
 
         ImGui_ImplDX11_NewFrame();
@@ -323,9 +398,13 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
         if (st.mode == AppMode::Loader)
             UI_RenderLoader(st, g_dev, g_loader);
         else {
-            // Always draw world overlays
-            st.esp.DrawOverlay();
-            st.aim.DrawFovAndRadar(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+            // Only draw ESP/FOV when the game window is up (not minimized)
+            HWND gw = FindFortniteWindow(st.esp.Attached() ? st.esp.proc.pid : 0);
+            bool vis = gw && !IsIconic(gw) && IsWindowVisible(gw);
+            if (vis && st.esp.Attached()) {
+                st.esp.DrawOverlay();
+                st.aim.DrawFovAndRadar(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+            }
             if (st.menuOpen)
                 UI_RenderOverlay(st, g_dev, g_overlay);
         }

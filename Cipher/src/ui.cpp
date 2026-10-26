@@ -415,14 +415,14 @@ void UI_RenderOverlay(AppState& st, ID3D11Device*, HWND hwnd) {
     const float menuW = 780.f;
     const float menuH = 520.f;
     ImVec2 menuPos((io.DisplaySize.x - menuW) * 0.5f, (io.DisplaySize.y - menuH) * 0.5f);
-    ImGui::SetNextWindowPos(menuPos, ImGuiCond_Always);
+    ImGui::SetNextWindowPos(menuPos, ImGuiCond_FirstUseEver);
     ImGui::SetNextWindowSize(ImVec2(menuW, menuH), ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(0.0f); // we draw our own bg
 
     ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar |
-        ImGuiWindowFlags_NoMove;
+        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar;
+        // movable — drag from empty panel / header area
 
     ImGui::Begin("##cipher", nullptr, flags);
     ImDrawList* dl = ImGui::GetWindowDrawList();

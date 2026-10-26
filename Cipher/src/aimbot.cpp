@@ -20,6 +20,7 @@ bool Aimbot::KeyActive() {
 }
 
 void Aimbot::DrawFovAndRadar(EspSystem& esp, int screenW, int screenH) {
+    if (!esp.Attached()) return; // no FOV floating when not on the game process
     if (!cfg.drawFov && !cfg.fovRadar) return;
     ImDrawList* dl = ImGui::GetBackgroundDrawList();
     const float cx = screenW * 0.5f, cy = screenH * 0.5f;
