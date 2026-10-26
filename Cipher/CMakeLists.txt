@@ -32,6 +32,10 @@ add_executable(Cipher WIN32
     src/memory.cpp
     src/esp.cpp
     src/aimbot.cpp
+    src/triggerbot.cpp
+    src/config.cpp
+    src/exploits.cpp
+    src/overlay.cpp
 )
 target_include_directories(Cipher PRIVATE src)
 target_link_libraries(Cipher PRIVATE imgui dwmapi)

@@ -1,32 +1,25 @@
-# Cipher — Feature 1: UI shell
+# Cipher — Loader + Fullscreen Overlay
 
-Black / white external menu for the Fortnite cheat project. **UI only** — no process attach, no ESP draw yet.
+## Flow
+1. **Loader** opens (rich UI). Shows **Fortnite not open** or **Fortnite detected**.
+2. Press **ATTACH** → process attach + **fullscreen topmost overlay**.
+3. Loader **minimizes**. Menu draws on the overlay (no Alt+Tab).
+4. **INSERT** toggles menu; when closed, overlay is click-through so you can play.
 
-## Layout
-- Left sidebar tabs: **Combat · Visuals · Misc · Config** (glyph icons + active glow bar)
-- Brand logo centered in sidebar (`logo_sm.png`)
-- Large faded logo watermark in content panel (`logo_lg.png`)
-- Soft open/close animation, tab cross-fade, pulsing watermark when menu hidden
-- Visuals tab hosts ESP controls (ready for Feature 2 wiring)
+## Features
+- Soft aim + hard/silent, FOV circle, **FOV radar triangles** (same color)
+- ESP: box/corner/filled, skeleton, **chams**, snaplines, radar, colors, player list
+- Triggerbot, exploits (no recoil/spread, FOV, speed, **spinbot** slider)
+- Streamproof on overlay HWND
+- SDK 20-10 offsets in `offsets.h`
 
-## Build (Windows)
-```bat
-cd Cipher
-git clone --depth 1 https://github.com/ocornut/imgui.git external\imgui
-cmake -B build -G "Visual Studio 17 2022" -A x64
+## Build
+```
+git clone --depth 1 https://github.com/ocornut/imgui.git external/imgui
+cmake -B build -A x64
 cmake --build build --config Release
-copy assets\*.png build\Release\
 ```
 
-Run `build\Release\Cipher.exe`. **INSERT** toggles the menu.
-
-## Assets
-| File | Use |
-|------|-----|
-| `assets/logo_sm.png` | Sidebar brand (48px draw) |
-| `assets/logo_lg.png` | Content watermark |
-
-Both sources were the same resolution; UI scales them differently.
-
-## Next feature
-ESP: attach to game, actor loop, world-to-screen, draw boxes using these toggles.
+## Notes
+Overlay uses color-key transparency (pure black). ESP/menu colors must not be pure black.
+W2S still needs a valid camera/view path for on-screen ESP.
