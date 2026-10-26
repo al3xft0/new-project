@@ -11,6 +11,9 @@
 #include <tchar.h>
 #include <cstdio>
 #include <dwmapi.h>
+#include "streamproof.h"
+// after g_hwnd created — optional default:
+// StreamProof::Set(g_hwnd, false);
 
 #pragma comment(lib, "dwmapi.lib")
 
@@ -149,7 +152,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
         WS_POPUP,
         posX, posY, kMenuW, kMenuH,
         nullptr, nullptr, wc.hInstance, nullptr);
-
+        StreamProof::Set(g_hwnd, false);
+    
     const DWORD DWMWCP_ROUND = 2;
     DwmSetWindowAttribute(g_hwnd, 33, (void*)&DWMWCP_ROUND, sizeof(DWMWCP_ROUND));
     BOOL dark = TRUE;
