@@ -198,10 +198,10 @@ void EspSystem::Tick() {
         auto read64 = [&](uintptr_t a) { return Mem::Read<uint64_t>(proc.handle, a); };
         uintptr_t uworld = Decrypt::GWorld(base, read64);
         if (uworld) {
-            uintptr_t gi = Mem::ReadPtr(proc.handle, uworld + Off::World_OwningGameInstance);
-            uintptr_t localPlayers = Mem::ReadPtr(proc.handle, gi + Off::GameInstance_LocalPlayers);
-            uintptr_t localPlayer = Mem::ReadPtr(proc.handle, localPlayers);
-            uintptr_t pc = Mem::ReadPtr(proc.handle, localPlayer + Off::LocalPlayer_PlayerController);
+            uintptr_t gi = Mem::ReadPtr(proc.handle, uworld + Off::GameInstance);
+            uintptr_t lpArr = Mem::ReadPtr(proc.handle, gi + Off::LocalPlayers);
+            uintptr_t lp = Mem::ReadPtr(proc.handle, lpArr);
+            uintptr_t pc = Mem::ReadPtr(proc.handle, lp + Off::PlayerController);
             localPawn_ = Mem::ReadPtr(proc.handle, pc + Off::AcknowledgedPawn);
         }
     }
