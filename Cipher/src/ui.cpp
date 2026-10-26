@@ -7,6 +7,7 @@
 #include <cstring>
 #include <cmath>
 #include <algorithm>
+#include "streamproof.h"
 
 static constexpr float kSidebarW = 196.f;
 static constexpr float kHeaderH  = 64.f;
