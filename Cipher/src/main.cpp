@@ -191,13 +191,14 @@ static bool EnterOverlayMode(HINSTANCE hi, AppState& st) {
 
     g_attachedMode = true;
     st.mode = AppMode::Overlay;
-    st.menuOpen = true;
+    st.menuOpen = false;          // off by default — INSERT opens
+    st.openAnim = 0.f;
     st.attaching = false;
-    Overlay::SetClickThrough(g_overlay, false);
+    Overlay::SetClickThrough(g_overlay, true);  // game receives input until menu open
     StreamProof::Set(g_overlay, st.misc.streamproof);
 
     ShowWindow(g_overlay, SW_SHOW);
-    SetForegroundWindow(g_overlay);
+    // do not steal focus from Fortnite
     snprintf(st.status, sizeof(st.status), "Overlay live — INSERT toggles menu");
     return true;
 }

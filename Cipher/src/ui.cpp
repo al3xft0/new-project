@@ -139,13 +139,14 @@ static void DrawSidebar(AppState& st, ImVec2 origin, float height) {
     dl->AddLine(ImVec2(b.x - 1, a.y + 12), ImVec2(b.x - 1, b.y - 12), ImGui::ColorConvertFloat4ToU32(Theme::BorderSoft), 1.f);
 
     float brandH = 88.f;
-    ImVec2 logoC(a.x + kSidebarW * 0.5f, a.y + 42.f);
+    ImVec2 logoC(a.x + kSidebarW * 0.5f, a.y + 40.f);
     if (st.logoSm.ok()) {
-        float sz = 48.f;
-        float pulse = Theme::Pulse(1.2f, 0.85f, 1.0f);
+        float sz = 52.f;
         ImVec2 tl(logoC.x - sz * 0.5f, logoC.y - sz * 0.5f);
-        dl->AddCircleFilled(logoC, sz * 0.62f, IM_COL32(255, 255, 255, (int)(18 * pulse)), 48);
-        dl->AddImage((ImTextureID)st.logoSm.srv, tl, ImVec2(tl.x + sz, tl.y + sz));
+        // soft glow behind logo
+        dl->AddCircleFilled(logoC, sz * 0.70f, IM_COL32(255, 255, 255, 16), 48);
+        dl->AddImage((ImTextureID)st.logoSm.srv, tl, ImVec2(tl.x + sz, tl.y + sz),
+                     ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255,255));
     }
     float tw = ImGui::CalcTextSize("CIPHER").x;
     ImGui::SetCursorScreenPos(ImVec2(a.x + (kSidebarW - tw) * 0.5f, a.y + brandH - 4));
@@ -431,46 +432,49 @@ void UI_RenderOverlay(AppState& st, ID3D11Device*, HWND hwnd) {
 
     st.contentAlpha = Theme::Lerp(st.contentAlpha, 1.f, dt * 8.f);
 
-    // Fill host client area (window is sized to menu in main.cpp)
-    ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
-    ImGui::SetNextWindowBgAlpha(0.97f * st.openAnim);
+    // Proper sized menu panel — centered, not full-screen
+    const float menuW = 780.f;
+    const float menuH = 520.f;
+    ImVec2 menuPos((io.DisplaySize.x - menuW) * 0.5f, (io.DisplaySize.y - menuH) * 0.5f);
+    ImGui::SetNextWindowPos(menuPos, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(menuW, menuH), ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.0f); // we draw our own bg
 
     ImGuiWindowFlags flags =
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
-        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar;
+        ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar |
+        ImGuiWindowFlags_NoMove;
 
     ImGui::Begin("##cipher", nullptr, flags);
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 wp = ImGui::GetWindowPos();
     ImVec2 ws = ImGui::GetWindowSize();
 
-    for (int i = 3; i >= 1; --i) {
-        float exp = 10.f * i;
-        dl->AddRect(ImVec2(wp.x - exp * 0.3f, wp.y - exp * 0.3f),
-                    ImVec2(wp.x + ws.x + exp * 0.3f, wp.y + ws.y + exp * 0.3f),
-                    IM_COL32(255, 255, 255, 6 * i), 12.f + i, 0, 1.5f);
-    }
+    // solid panel bg
+    dl->AddRectFilled(wp, ImVec2(wp.x + ws.x, wp.y + ws.y),
+                      ImGui::ColorConvertFloat4ToU32(Theme::BgPanel), 12.f);
     dl->AddRect(wp, ImVec2(wp.x + ws.x, wp.y + ws.y),
-                ImGui::ColorConvertFloat4ToU32(Theme::Border), 10.f, 0, 1.f);
+                ImGui::ColorConvertFloat4ToU32(Theme::Border), 12.f, 0, 1.2f);
 
     DrawSidebar(st, wp, ws.y);
 
     ImVec2 contentPos(wp.x + kSidebarW, wp.y);
     ImVec2 contentSize(ws.x - kSidebarW, ws.y);
     dl->AddRectFilled(contentPos, ImVec2(contentPos.x + contentSize.x, contentPos.y + contentSize.y),
-                      ImGui::ColorConvertFloat4ToU32(Theme::BgPanel), 10.f, ImDrawFlags_RoundCornersRight);
+                      ImGui::ColorConvertFloat4ToU32(Theme::BgPanel), 12.f, ImDrawFlags_RoundCornersRight);
     dl->AddRectFilled(contentPos, ImVec2(contentPos.x + contentSize.x, contentPos.y + kHeaderH),
                       ImGui::ColorConvertFloat4ToU32(Theme::BgCard), 0.f);
     dl->AddLine(ImVec2(contentPos.x, contentPos.y + kHeaderH),
                 ImVec2(contentPos.x + contentSize.x, contentPos.y + kHeaderH),
                 ImGui::ColorConvertFloat4ToU32(Theme::BorderSoft), 1.f);
 
-    if (st.logoLg.ok()) {
-        float sz = 160.f;
-        ImVec2 lp(contentPos.x + contentSize.x - sz - 24.f, contentPos.y + contentSize.y - sz - 24.f);
-        dl->AddImage((ImTextureID)st.logoLg.srv, lp, ImVec2(lp.x + sz, lp.y + sz),
-                     ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255,14));
+    // soft corner watermark logo (not stretched)
+    if (st.logoSm.ok()) {
+        float sz = 72.f;
+        ImVec2 lp(contentPos.x + contentSize.x - sz - 16.f,
+                  contentPos.y + contentSize.y - sz - 16.f);
+        dl->AddImage((ImTextureID)st.logoSm.srv, lp, ImVec2(lp.x + sz, lp.y + sz),
+                     ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255,28));
     }
 
     ImGui::SetCursorScreenPos(ImVec2(contentPos.x + 22.f, contentPos.y + 20.f));
@@ -487,10 +491,11 @@ void UI_RenderOverlay(AppState& st, ID3D11Device*, HWND hwnd) {
                       ImGuiWindowFlags_NoBackground);
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, st.contentAlpha * st.openAnim);
     switch (st.tab) {
-    case TabId::Visuals: DrawVisualsPage(st); break;
-    case TabId::Combat:  DrawCombatPage(st);  break;
-    case TabId::Misc:    DrawMiscPage(st);    break;
-    case TabId::Config:  DrawConfigPage(st);  break;
+    case TabId::Visuals:  DrawVisualsPage(st);  break;
+    case TabId::Combat:   DrawCombatPage(st);   break;
+    case TabId::Exploits: DrawExploitsPage(st); break;
+    case TabId::Misc:     DrawMiscPage(st);     break;
+    case TabId::Config:   DrawConfigPage(st);   break;
     default: break;
     }
     ImGui::PopStyleVar();
