@@ -181,6 +181,21 @@ bool EspSystem::EnumPlayers() {
 }
 
 void EspSystem::Tick() {
+    uintptr_t base = Mem::GetModuleBase(nullptr);
+if (!base) return;
+
+auto read64 = [&](uintptr_t a) { return Mem::Read<uint64_t>(a); };
+uintptr_t uworld = Decrypt::GWorld(base, read64);
+if (!uworld) return;
+
+uintptr_t gi = Mem::ReadPtr(uworld + Off::World_OwningGameInstance);
+uintptr_t localPlayers = Mem::ReadPtr(gi + Off::GameInstance_LocalPlayers);
+uintptr_t localPlayer = Mem::ReadPtr(localPlayers); // TArray.Data
+uintptr_t pc = Mem::ReadPtr(localPlayer + Off::LocalPlayer_PlayerController);
+uintptr_t camMgr = Mem::ReadPtr(pc + Off::PlayerController_PlayerCameraManager);
+
+// then read FMinimalViewInfo from camMgr + CameraCachePrivate + POV
+// and walk GameState → PlayerArray exactly as before
     if (!cfg.enabled) {
         frame.players.clear();
         return;
