@@ -317,6 +317,16 @@ void UI_InitFonts() {
 }
 
 void UI_Render(AppState& st, ID3D11Device*, HWND hwnd) {
+        // Streamproof — apply when menu visible; keep affinity while hidden too
+    {
+        static bool lastSp = false;
+        static bool inited = false;
+        if (!inited || st.misc.streamproof != lastSp) {
+            StreamProof::Set(hwnd, st.misc.streamproof);
+            lastSp = st.misc.streamproof;
+            inited = true;
+        }
+    }
     const ImGuiIO& io = ImGui::GetIO();
     const float dt = io.DeltaTime;
 
