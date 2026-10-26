@@ -35,9 +35,14 @@ struct AppState {
     bool        autoAttach   = true;
     bool        fortniteOpen = false;
     bool        requestAttach = false;
+    bool        attaching    = false;
+    // intro splash
+    bool        introDone    = false;
+    float       introT       = 0.f;   // seconds elapsed
+    float       menuFade     = 0.f;   // 0..1 after intro
     MiscState   misc;
     Texture     logoLg, logoSm;
-    char        status[160]  = "Waiting for Fortnite";
+    char        status[160]  = "Initializing";
     EspSystem   esp;
     Aimbot      aim;
     Triggerbot  trigger;

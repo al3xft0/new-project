@@ -499,97 +499,256 @@ void UI_RenderOverlay(AppState& st, ID3D11Device*, HWND hwnd) {
 }
 
 
+
 void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     const ImGuiIO& io = ImGui::GetIO();
+    const float dt = io.DeltaTime > 0.f ? io.DeltaTime : 0.016f;
+    st.introT += dt;
+
+    // ESC always quits loader
+    if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+        PostQuitMessage(0);
+
     ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiCond_Always);
     ImGui::SetNextWindowSize(io.DisplaySize, ImGuiCond_Always);
-    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 12.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 16.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
     ImGui::Begin("##loader", nullptr,
         ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse |
-        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove);
+        ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBringToFrontOnFocus);
 
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 wp = ImGui::GetWindowPos();
     ImVec2 ws = ImGui::GetWindowSize();
 
-    // background card + glow
-    dl->AddRectFilled(wp, ImVec2(wp.x+ws.x, wp.y+ws.y), IM_COL32(12,12,14,255), 12.f);
-    for (int i = 3; i >= 1; --i)
-        dl->AddRect(ImVec2(wp.x-i*2, wp.y-i*2), ImVec2(wp.x+ws.x+i*2, wp.y+ws.y+i*2),
-                    IM_COL32(255,255,255, 4*i), 14.f);
+    // base fill
+    dl->AddRectFilled(wp, ImVec2(wp.x + ws.x, wp.y + ws.y), IM_COL32(8, 8, 10, 255), 16.f);
 
-    // brand
-    ImVec2 lc(wp.x + ws.x*0.5f, wp.y + 90.f);
-    if (st.logoSm.ok()) {
-        float sz = 72.f;
-        dl->AddCircleFilled(lc, sz*0.72f, IM_COL32(255,255,255,20), 48);
-        dl->AddImage((ImTextureID)st.logoSm.srv, ImVec2(lc.x-sz*0.5f, lc.y-sz*0.5f),
-                     ImVec2(lc.x+sz*0.5f, lc.y+sz*0.5f));
+    // soft vignette rings
+    for (int i = 5; i >= 1; --i) {
+        float e = (float)i * 18.f;
+        dl->AddRect(ImVec2(wp.x - e * 0.15f, wp.y - e * 0.15f),
+                    ImVec2(wp.x + ws.x + e * 0.15f, wp.y + ws.y + e * 0.15f),
+                    IM_COL32(255, 255, 255, 3 * i), 18.f + i, 0, 1.2f);
     }
-    const char* title = "CIPHER";
-    ImVec2 ts = ImGui::CalcTextSize(title);
-    ImGui::SetCursorScreenPos(ImVec2(wp.x + (ws.x-ts.x)*0.5f, wp.y + 140.f));
-    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1,1,1,1));
-    ImGui::TextUnformatted(title);
-    ImGui::PopStyleColor();
-    ImGui::SetCursorScreenPos(ImVec2(wp.x + 40.f, wp.y + 175.f));
-    ImGui::PushStyleColor(ImGuiCol_Text, Theme::TextDim);
-    ImGui::TextWrapped("%s", st.status);
-    ImGui::PopStyleColor();
 
-    // status pill
-    ImGui::SetCursorScreenPos(ImVec2(wp.x + 40.f, wp.y + 220.f));
-    ImGui::BeginChild("##statuscard", ImVec2(ws.x - 80.f, 72.f), true);
-    if (st.fortniteOpen) {
+    // ---------- INTRO: logo flash then fade ----------
+    const float introHold = 0.85f;
+    const float introFade = 0.65f;
+    const float introEnd  = introHold + introFade;
+
+    if (!st.introDone) {
+        float t = st.introT;
+        float alpha = 1.f;
+        float scale = 1.f;
+        if (t < 0.25f) {
+            // punch in
+            float u = t / 0.25f;
+            scale = 0.65f + 0.45f * u;
+            alpha = u;
+        } else if (t < introHold) {
+            // breathe
+            scale = 1.1f + 0.04f * sinf(t * 6.f);
+            alpha = 1.f;
+        } else if (t < introEnd) {
+            float u = (t - introHold) / introFade;
+            alpha = 1.f - u;
+            scale = 1.1f + 0.25f * u;
+        } else {
+            st.introDone = true;
+            st.menuFade = 0.f;
+            alpha = 0.f;
+        }
+
+        ImVec2 c(wp.x + ws.x * 0.5f, wp.y + ws.y * 0.5f);
+        float sz = 120.f * scale;
+        // glow bloom
+        for (int i = 4; i >= 1; --i) {
+            float g = sz * (0.55f + i * 0.12f);
+            int a = (int)(28 * alpha / i);
+            dl->AddCircleFilled(c, g, IM_COL32(255, 255, 255, a), 64);
+        }
+        if (st.logoLg.ok()) {
+            int a = (int)(255 * alpha);
+            dl->AddImage((ImTextureID)st.logoLg.srv,
+                         ImVec2(c.x - sz * 0.5f, c.y - sz * 0.5f),
+                         ImVec2(c.x + sz * 0.5f, c.y + sz * 0.5f),
+                         ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255,a));
+        } else if (st.logoSm.ok()) {
+            int a = (int)(255 * alpha);
+            dl->AddImage((ImTextureID)st.logoSm.srv,
+                         ImVec2(c.x - sz * 0.5f, c.y - sz * 0.5f),
+                         ImVec2(c.x + sz * 0.5f, c.y + sz * 0.5f),
+                         ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255,a));
+        }
+        // title under logo during hold
+        if (t > 0.3f && t < introEnd) {
+            const char* title = "CIPHER";
+            ImVec2 ts = ImGui::CalcTextSize(title);
+            int a = (int)(220 * alpha);
+            dl->AddText(ImVec2(c.x - ts.x * 0.5f, c.y + sz * 0.55f), IM_COL32(255,255,255,a), title);
+        }
+
+        ImGui::End();
+        ImGui::PopStyleVar(2);
+        (void)hwnd;
+        return;
+    }
+
+    // ---------- MAIN LOADER MENU ----------
+    st.menuFade = Theme::Lerp(st.menuFade, 1.f, dt * 4.5f);
+    float mf = st.menuFade;
+
+    // top drag strip (visual only — Win32 NCHITTEST can be added; for now space)
+    dl->AddRectFilled(wp, ImVec2(wp.x + ws.x, wp.y + 42.f), IM_COL32(255,255,255, (int)(8 * mf)), 0);
+
+    // close button — large hit target
+    {
+        ImVec2 cmin(wp.x + ws.x - 48.f, wp.y + 8.f);
+        ImGui::SetCursorScreenPos(cmin);
+        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
+        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.9f,0.2f,0.25f,0.55f));
+        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1.f,0.25f,0.3f,0.85f));
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 8.f);
+        if (ImGui::Button("##cls", ImVec2(36, 28)))
+            PostQuitMessage(0);
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        ImVec2 c((a.x+b.x)*0.5f, (a.y+b.y)*0.5f);
+        dl->AddLine(ImVec2(c.x-5, c.y-5), ImVec2(c.x+5, c.y+5), IM_COL32(230,230,235,220), 1.6f);
+        dl->AddLine(ImVec2(c.x+5, c.y-5), ImVec2(c.x-5, c.y+5), IM_COL32(230,230,235,220), 1.6f);
+        ImGui::PopStyleVar();
+        ImGui::PopStyleColor(3);
+    }
+
+    // brand logo + title
+    ImVec2 lc(wp.x + ws.x * 0.5f, wp.y + 88.f);
+    float pulse = 0.5f + 0.5f * sinf(st.introT * 2.2f);
+    for (int i = 3; i >= 1; --i) {
+        dl->AddCircleFilled(lc, 38.f + i * 6.f, IM_COL32(255,255,255, (int)((10 + 6*pulse) * mf / i)), 48);
+    }
+    if (st.logoSm.ok()) {
+        float sz = 64.f;
+        dl->AddImage((ImTextureID)st.logoSm.srv,
+                     ImVec2(lc.x - sz*0.5f, lc.y - sz*0.5f),
+                     ImVec2(lc.x + sz*0.5f, lc.y + sz*0.5f),
+                     ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255,(int)(255*mf)));
+    }
+    {
+        const char* title = "CIPHER";
+        ImVec2 ts = ImGui::CalcTextSize(title);
+        dl->AddText(ImVec2(lc.x - ts.x*0.5f, lc.y + 42.f), IM_COL32(255,255,255,(int)(245*mf)), title);
+        const char* sub = "external";
+        ImVec2 ss = ImGui::CalcTextSize(sub);
+        dl->AddText(ImVec2(lc.x - ss.x*0.5f, lc.y + 60.f), IM_COL32(160,160,170,(int)(200*mf)), sub);
+    }
+
+    // status card
+    float cardX = wp.x + 36.f;
+    float cardW = ws.x - 72.f;
+    float cardY = wp.y + 175.f;
+    ImVec2 c0(cardX, cardY), c1(cardX + cardW, cardY + 78.f);
+    dl->AddRectFilled(c0, c1, IM_COL32(255,255,255, (int)(12 * mf)), 12.f);
+    dl->AddRect(c0, c1, IM_COL32(255,255,255, (int)(22 * mf)), 12.f, 0, 1.f);
+
+    // live status string synced to fortniteOpen
+    if (!st.attaching) {
+        if (st.fortniteOpen)
+            snprintf(st.status, sizeof(st.status), "Fortnite detected — ready");
+        else
+            snprintf(st.status, sizeof(st.status), "Fortnite not open");
+    }
+
+    ImGui::SetCursorScreenPos(ImVec2(cardX + 18.f, cardY + 16.f));
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, mf);
+    if (st.attaching) {
+        ImGui::TextColored(ImVec4(1.f, 0.85f, 0.4f, 1.f), "Attaching...");
+        ImGui::TextDisabled("Opening process + overlay");
+    } else if (st.fortniteOpen) {
+        // glowing green dot
+        ImVec2 d(cardX + 18.f, cardY + 22.f);
+        dl->AddCircleFilled(ImVec2(d.x + 4, d.y + 4), 5.f + pulse * 2.f, IM_COL32(80, 255, 140, (int)(40 + 30*pulse)), 16);
+        dl->AddCircleFilled(ImVec2(d.x + 4, d.y + 4), 4.f, IM_COL32(90, 255, 150, 255), 16);
+        ImGui::SetCursorScreenPos(ImVec2(cardX + 36.f, cardY + 14.f));
         ImGui::TextColored(ImVec4(0.55f, 1.f, 0.65f, 1.f), "Fortnite detected");
+        ImGui::SetCursorScreenPos(ImVec2(cardX + 36.f, cardY + 36.f));
         ImGui::TextDisabled("Ready to attach");
     } else {
+        ImVec2 d(cardX + 18.f, cardY + 22.f);
+        dl->AddCircleFilled(ImVec2(d.x + 4, d.y + 4), 4.f, IM_COL32(255, 90, 90, 255), 16);
+        ImGui::SetCursorScreenPos(ImVec2(cardX + 36.f, cardY + 14.f));
         ImGui::TextColored(ImVec4(1.f, 0.45f, 0.45f, 1.f), "Fortnite not open");
-        ImGui::TextDisabled("Start the game, then attach");
-    }
-    ImGui::EndChild();
-
-    ImGui::SetCursorScreenPos(ImVec2(wp.x + 40.f, wp.y + 310.f));
-    ImGui::PushStyleColor(ImGuiCol_Button, st.fortniteOpen ? ImVec4(1,1,1,0.12f) : ImVec4(1,1,1,0.04f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.20f));
-    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.28f));
-    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.f);
-    if (ImGui::Button("ATTACH", ImVec2(ws.x - 80.f, 52.f))) {
-        st.requestAttach = true;
-        if (!st.fortniteOpen)
-            snprintf(st.status, sizeof(st.status), "Fortnite not open");
-        else
-            snprintf(st.status, sizeof(st.status), "Attaching...");
+        ImGui::SetCursorScreenPos(ImVec2(cardX + 36.f, cardY + 36.f));
+        ImGui::TextDisabled("Launch the game, then attach");
     }
     ImGui::PopStyleVar();
-    ImGui::PopStyleColor(3);
 
-    ImGui::SetCursorScreenPos(ImVec2(wp.x + 40.f, wp.y + 380.f));
-    if (ImGui::Button("REFRESH STATUS", ImVec2(ws.x - 80.f, 40.f))) {
-        snprintf(st.status, sizeof(st.status), st.fortniteOpen ? "Fortnite detected" : "Fortnite not open");
+    // ATTACH button with glow
+    float btnY = cardY + 100.f;
+    ImGui::SetCursorScreenPos(ImVec2(cardX, btnY));
+    bool canAttach = st.fortniteOpen && !st.attaching;
+    ImVec4 btnCol = canAttach ? ImVec4(1,1,1,0.14f) : ImVec4(1,1,1,0.05f);
+    ImVec4 btnHov = canAttach ? ImVec4(1,1,1,0.24f) : btnCol;
+    ImGui::PushStyleColor(ImGuiCol_Button, btnCol);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, btnHov);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.32f));
+    ImGui::PushStyleColor(ImGuiCol_Text, canAttach ? ImVec4(1,1,1,1) : ImVec4(1,1,1,0.35f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, mf);
+    if (ImGui::Button(st.attaching ? "ATTACHING..." : "ATTACH", ImVec2(cardW, 54.f))) {
+        if (canAttach) {
+            st.attaching = true;
+            st.requestAttach = true;
+            snprintf(st.status, sizeof(st.status), "Attaching...");
+        } else if (!st.fortniteOpen) {
+            snprintf(st.status, sizeof(st.status), "Fortnite not open");
+        }
     }
+    // outer glow on hover when enabled
+    if (canAttach && ImGui::IsItemHovered()) {
+        ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
+        dl->AddRect(ImVec2(a.x-2, a.y-2), ImVec2(b.x+2, b.y+2), IM_COL32(255,255,255,50), 14.f, 0, 1.5f);
+    }
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(4);
 
-    ImGui::SetCursorScreenPos(ImVec2(wp.x + 40.f, wp.y + 440.f));
-    ImGui::TextDisabled("After attach: overlay covers the game.");
-    ImGui::SetCursorScreenPos(ImVec2(wp.x + 40.f, wp.y + 460.f));
-    ImGui::TextDisabled("INSERT toggles the in-game menu.");
-    ImGui::SetCursorScreenPos(ImVec2(wp.x + 40.f, wp.y + 490.f));
-    ImGui::TextDisabled("Loader minimizes on success.");
-
-    // close
-    ImGui::SetCursorScreenPos(ImVec2(wp.x + ws.x - 44.f, wp.y + 12.f));
-    if (ImGui::Button("X", ImVec2(32, 32)))
+    // secondary actions
+    ImGui::SetCursorScreenPos(ImVec2(cardX, btnY + 66.f));
+    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1,1,1,0.06f));
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.12f));
+    ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.f);
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, mf);
+    if (ImGui::Button("REFRESH", ImVec2(cardW * 0.48f, 42.f))) {
+        st.attaching = false;
+        snprintf(st.status, sizeof(st.status), st.fortniteOpen ? "Fortnite detected — ready" : "Fortnite not open");
+    }
+    ImGui::SameLine(0, cardW * 0.04f);
+    if (ImGui::Button("EXIT", ImVec2(cardW * 0.48f, 42.f)))
         PostQuitMessage(0);
+    ImGui::PopStyleVar(2);
+    ImGui::PopStyleColor(2);
 
+    // footer hints
+    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, mf * 0.85f);
+    ImGui::SetCursorScreenPos(ImVec2(cardX, btnY + 130.f));
+    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f,0.55f,0.58f,1.f));
+    ImGui::TextWrapped("Overlay covers the game after attach. INSERT toggles the menu.");
+    ImGui::SetCursorScreenPos(ImVec2(cardX, btnY + 168.f));
+    ImGui::TextDisabled("Run as Administrator if attach fails.");
+    ImGui::SetCursorScreenPos(ImVec2(cardX, btnY + 190.f));
+    ImGui::TextDisabled("ESC or EXIT to quit.");
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar();
+
+    // watermark logo corner
     if (st.logoLg.ok()) {
-        float sz = 180.f;
+        float sz = 160.f;
         dl->AddImage((ImTextureID)st.logoLg.srv,
-                     ImVec2(wp.x + ws.x - sz - 10, wp.y + ws.y - sz - 10),
-                     ImVec2(wp.x + ws.x - 10, wp.y + ws.y - 10),
-                     ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255,18));
+                     ImVec2(wp.x + ws.x - sz - 8, wp.y + ws.y - sz - 8),
+                     ImVec2(wp.x + ws.x - 8, wp.y + ws.y - 8),
+                     ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255, (int)(16 * mf)));
     }
 
     ImGui::End();
-    ImGui::PopStyleVar();
+    ImGui::PopStyleVar(2);
     (void)hwnd;
 }

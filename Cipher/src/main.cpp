@@ -76,9 +76,23 @@ static bool RecreateSwapchainFor(HWND hwnd) {
 static LRESULT WINAPI LoaderProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (ImGui_ImplWin32_WndProcHandler(h, m, w, l)) return true;
     switch (m) {
+    case WM_CLOSE:
+        if (!g_attachedMode) { DestroyWindow(h); }
+        return 0;
     case WM_DESTROY:
         if (!g_attachedMode) { PostQuitMessage(0); }
         return 0;
+    case WM_NCHITTEST: {
+        LRESULT hit = DefWindowProcW(h, m, w, l);
+        if (hit != HTCLIENT) return hit;
+        POINT pt{ (SHORT)LOWORD(l), (SHORT)HIWORD(l) };
+        ScreenToClient(h, &pt);
+        RECT rc; GetClientRect(h, &rc);
+        // close button zone
+        if (pt.y < 40 && pt.x > rc.right - 56) return HTCLIENT;
+        if (pt.y < 40) return HTCAPTION; // drag bar
+        return HTCLIENT;
+    }
     case WM_SIZE:
         if (g_dev && w != SIZE_MINIMIZED && !g_attachedMode) {
             CleanupRT();
@@ -225,16 +239,25 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
             st.fortniteOpen = IsFortniteRunning();
             if (st.requestAttach && st.fortniteOpen) {
                 st.requestAttach = false;
+                st.attaching = true;
                 if (st.esp.Attach()) {
                     if (!EnterOverlayMode(hi, st)) {
-                        snprintf(st.status, sizeof(st.status), "Overlay create failed");
+                        st.attaching = false;
                         st.mode = AppMode::Loader;
+                        ShowWindow(g_loader, SW_RESTORE);
+                        snprintf(st.status, sizeof(st.status), "Overlay failed — try again as Admin");
+                    } else {
+                        st.attaching = false;
                     }
                 } else {
-                    snprintf(st.status, sizeof(st.status), "Attach failed");
+                    st.attaching = false;
+                    DWORD err = GetLastError();
+                    snprintf(st.status, sizeof(st.status),
+                             "Attach failed (err %lu) — run as Admin", (unsigned long)err);
                 }
             } else if (st.requestAttach) {
                 st.requestAttach = false;
+                st.attaching = false;
                 snprintf(st.status, sizeof(st.status), "Fortnite not open");
             }
         } else {
