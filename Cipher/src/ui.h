@@ -4,6 +4,7 @@
 #include "aimbot.h"
 #include "triggerbot.h"
 #include "exploits.h"
+#include "license_crypto.h"
 #include <d3d11.h>
 #include <Windows.h>
 
@@ -40,6 +41,15 @@ struct AppState {
     bool        introDone    = false;
     float       introT       = 0.f;   // seconds elapsed
     float       menuFade     = 0.f;   // 0..1 after intro
+
+    // license gate
+    bool                  licenseOk     = false;
+    bool                  licenseTried  = false;
+    float                 logoAnim      = 0.f;
+    char                  licenseBuf[96] = {};
+    License::Status       licenseStatus = License::Status::BadFormat;
+    License::KeyInfo      licenseInfo{};
+
     MiscState   misc;
     Texture     logoLg, logoSm;
     char        status[160]  = "Initializing";
