@@ -38,7 +38,7 @@ namespace Mem {
     std::optional<uintptr_t> PatternScan(HANDLE h, uintptr_t start, size_t size, const char* pattern);
 }
 
-#namespace Decrypt {
+namespace Decrypt {
     inline uint64_t Bswap64(uint64_t x) {
         const uint32_t lo = (uint32_t)x;
         const uint32_t hi = (uint32_t)(x >> 32);
