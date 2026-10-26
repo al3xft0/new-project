@@ -398,29 +398,8 @@ void UI_RenderOverlay(AppState& st, ID3D11Device*, HWND hwnd) {
     const ImGuiIO& io = ImGui::GetIO();
     const float dt = io.DeltaTime;
 
-    // INSERT is handled by RegisterHotKey in main (works while hidden).
-    // Also allow ImGui key when focused:
-    if (ImGui::IsKeyPressed(ImGuiKey_Insert))
-        st.menuOpen = !st.menuOpen;
-
-    // Engines always tick
-    if (st.autoAttach && !st.esp.Attached())
-        st.esp.Attach();
-    st.esp.Tick();
-    st.esp.DrawOverlay();
-
-    st.aim.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-    st.aim.DrawFovAndRadar(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-    st.trigger.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-    st.exploits.Tick(st.esp);
-    {
-        static bool lastSp = false, init = false;
-        if (!init || st.misc.streamproof != lastSp) {
-            StreamProof::Set(hwnd, st.misc.streamproof);
-            lastSp = st.misc.streamproof;
-            init = true;
-        }
-    }
+    // INSERT is handled in main (RegisterHotKey + GetAsyncKeyState).
+    // Engines tick in main — do not double-tick here.
 
     st.openAnim = Theme::Lerp(st.openAnim, st.menuOpen ? 1.f : 0.f, dt * 14.f);
     if (!st.menuOpen || st.openAnim < 0.01f) {
@@ -622,7 +601,7 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     }
 
     // brand logo + title
-    ImVec2 lc(wp.x + ws.x * 0.5f, wp.y + 88.f);
+    ImVec2 lc(wp.x + ws.x * 0.5f, wp.y + 72.f);
     float pulse = 0.5f + 0.5f * sinf(st.introT * 2.2f);
     // single soft halo instead of stacked white circles
     dl->AddCircleFilled(lc, 48.f + pulse * 4.f, IM_COL32(230, 235, 255, (int)(14 * mf)), 48);
@@ -637,17 +616,17 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     {
         const char* title = "CIPHER";
         ImVec2 ts = ImGui::CalcTextSize(title);
-        dl->AddText(ImVec2(lc.x - ts.x*0.5f, lc.y + 42.f), IM_COL32(255,255,255,(int)(245*mf)), title);
+        dl->AddText(ImVec2(lc.x - ts.x*0.5f, lc.y + 38.f), IM_COL32(255,255,255,(int)(245*mf)), title);
         const char* sub = "external";
         ImVec2 ss = ImGui::CalcTextSize(sub);
-        dl->AddText(ImVec2(lc.x - ss.x*0.5f, lc.y + 60.f), IM_COL32(160,160,170,(int)(200*mf)), sub);
+        dl->AddText(ImVec2(lc.x - ss.x*0.5f, lc.y + 56.f), IM_COL32(160,160,170,(int)(200*mf)), sub);
     }
 
     // status card
-    float cardX = wp.x + 36.f;
-    float cardW = ws.x - 72.f;
-    float cardY = wp.y + 175.f;
-    ImVec2 c0(cardX, cardY), c1(cardX + cardW, cardY + 78.f);
+    float cardX = wp.x + 28.f;
+    float cardW = ws.x - 56.f;
+    float cardY = wp.y + 155.f;
+    ImVec2 c0(cardX, cardY), c1(cardX + cardW, cardY + 72.f);
     dl->AddRectFilled(c0, c1, IM_COL32(255,255,255, (int)(12 * mf)), 12.f);
     dl->AddRect(c0, c1, IM_COL32(255,255,255, (int)(22 * mf)), 12.f, 0, 1.f);
 
@@ -684,7 +663,7 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     ImGui::PopStyleVar();
 
     // ATTACH button with glow
-    float btnY = cardY + 100.f;
+    float btnY = cardY + 88.f;
     ImGui::SetCursorScreenPos(ImVec2(cardX, btnY));
     bool canAttach = st.fortniteOpen && !st.attaching;
     ImVec4 btnCol = canAttach ? ImVec4(1,1,1,0.14f) : ImVec4(1,1,1,0.05f);
@@ -695,7 +674,7 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     ImGui::PushStyleColor(ImGuiCol_Text, canAttach ? ImVec4(1,1,1,1) : ImVec4(1,1,1,0.35f));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 12.f);
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, mf);
-    if (ImGui::Button(st.attaching ? "ATTACHING..." : "ATTACH", ImVec2(cardW, 54.f))) {
+    if (ImGui::Button(st.attaching ? "ATTACHING..." : "ATTACH", ImVec2(cardW, 48.f))) {
         if (canAttach) {
             st.attaching = true;
             st.requestAttach = true;
@@ -713,40 +692,40 @@ void UI_RenderLoader(AppState& st, ID3D11Device*, HWND hwnd) {
     ImGui::PopStyleColor(4);
 
     // secondary actions
-    ImGui::SetCursorScreenPos(ImVec2(cardX, btnY + 66.f));
+    ImGui::SetCursorScreenPos(ImVec2(cardX, btnY + 58.f));
     ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(1,1,1,0.06f));
     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.12f));
     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 10.f);
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, mf);
-    if (ImGui::Button("REFRESH", ImVec2(cardW * 0.48f, 42.f))) {
+    if (ImGui::Button("REFRESH", ImVec2(cardW * 0.48f, 40.f))) {
         st.attaching = false;
         snprintf(st.status, sizeof(st.status), st.fortniteOpen ? "Fortnite detected — ready" : "Fortnite not open");
     }
     ImGui::SameLine(0, cardW * 0.04f);
-    if (ImGui::Button("EXIT", ImVec2(cardW * 0.48f, 42.f)))
+    if (ImGui::Button("EXIT", ImVec2(cardW * 0.48f, 40.f)))
         PostQuitMessage(0);
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor(2);
 
     // footer hints
     ImGui::PushStyleVar(ImGuiStyleVar_Alpha, mf * 0.85f);
-    ImGui::SetCursorScreenPos(ImVec2(cardX, btnY + 130.f));
+    ImGui::SetCursorScreenPos(ImVec2(cardX, btnY + 112.f));
     ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.55f,0.55f,0.58f,1.f));
     ImGui::TextWrapped("Overlay covers the game after attach. INSERT toggles the menu.");
-    ImGui::SetCursorScreenPos(ImVec2(cardX, btnY + 168.f));
+    ImGui::SetCursorScreenPos(ImVec2(cardX, btnY + 146.f));
     ImGui::TextDisabled("Run as Administrator if attach fails.");
-    ImGui::SetCursorScreenPos(ImVec2(cardX, btnY + 190.f));
+    ImGui::SetCursorScreenPos(ImVec2(cardX, btnY + 166.f));
     ImGui::TextDisabled("ESC or EXIT to quit.");
     ImGui::PopStyleColor();
     ImGui::PopStyleVar();
 
     // watermark logo corner
     if (st.logoLg.ok()) {
-        float sz = 160.f;
+        float sz = 120.f;
         dl->AddImage((ImTextureID)st.logoLg.srv,
-                     ImVec2(wp.x + ws.x - sz - 8, wp.y + ws.y - sz - 8),
-                     ImVec2(wp.x + ws.x - 8, wp.y + ws.y - 8),
-                     ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255, (int)(16 * mf)));
+                     ImVec2(wp.x + ws.x - sz - 4, wp.y + ws.y - sz - 4),
+                     ImVec2(wp.x + ws.x - 4, wp.y + ws.y - 4),
+                     ImVec2(0,0), ImVec2(1,1), IM_COL32(255,255,255, (int)(12 * mf)));
     }
 
     ImGui::End();

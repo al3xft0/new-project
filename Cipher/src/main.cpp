@@ -25,7 +25,7 @@ static HWND                    g_loader = nullptr;
 static HWND                    g_overlay = nullptr;
 static bool                    g_running = true;
 static bool                    g_attachedMode = false;
-static const int kLoaderW = 520, kLoaderH = 640;
+static const int kLoaderW = 480, kLoaderH = 560;
 static const int kHotkeyId = 1;
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
@@ -41,7 +41,7 @@ static bool CreateDevice(HWND hwnd) {
     DXGI_SWAP_CHAIN_DESC sd{};
     sd.BufferCount = 2;
     sd.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
-    sd.BufferDesc.RefreshRate = { 60, 1 };
+    sd.BufferDesc.RefreshRate = { 0, 1 };
     sd.Flags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
     sd.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     sd.OutputWindow = hwnd;
@@ -65,6 +65,8 @@ static void CleanupDevice() {
     if (g_dev) { g_dev->Release(); g_dev = nullptr; }
 }
 
+// Full device teardown + rebuild bound to a new HWND.
+// Caller MUST re-init ImGui DX11 after this returns true.
 static bool RecreateSwapchainFor(HWND hwnd) {
     CleanupRT();
     if (g_swap) { g_swap->Release(); g_swap = nullptr; }
@@ -73,18 +75,31 @@ static bool RecreateSwapchainFor(HWND hwnd) {
     return CreateDevice(hwnd);
 }
 
+static void GetPrimaryMonitorRect(int* x, int* y, int* w, int* h) {
+    HMONITOR mon = MonitorFromPoint(POINT{ 0, 0 }, MONITOR_DEFAULTTOPRIMARY);
+    MONITORINFO mi{ sizeof(mi) };
+    if (GetMonitorInfoW(mon, &mi)) {
+        *x = mi.rcMonitor.left;
+        *y = mi.rcMonitor.top;
+        *w = mi.rcMonitor.right - mi.rcMonitor.left;
+        *h = mi.rcMonitor.bottom - mi.rcMonitor.top;
+    } else {
+        *x = 0; *y = 0;
+        *w = GetSystemMetrics(SM_CXSCREEN);
+        *h = GetSystemMetrics(SM_CYSCREEN);
+    }
+}
+
 static LRESULT WINAPI LoaderProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (ImGui_ImplWin32_WndProcHandler(h, m, w, l)) return true;
     switch (m) {
     case WM_CLOSE:
-        // Always allow the X / system close on the loader window.
         DestroyWindow(h);
         return 0;
     case WM_DESTROY:
         if (!g_attachedMode) {
             PostQuitMessage(0);
         } else if (!g_overlay || !IsWindow(g_overlay)) {
-            // Loader was the only reachable window — exit cleanly.
             PostQuitMessage(0);
         }
         return 0;
@@ -94,9 +109,8 @@ static LRESULT WINAPI LoaderProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         POINT pt{ (SHORT)LOWORD(l), (SHORT)HIWORD(l) };
         ScreenToClient(h, &pt);
         RECT rc; GetClientRect(h, &rc);
-        // close button zone
         if (pt.y < 40 && pt.x > rc.right - 56) return HTCLIENT;
-        if (pt.y < 40) return HTCAPTION; // drag bar
+        if (pt.y < 40) return HTCAPTION;
         return HTCLIENT;
     }
     case WM_SIZE:
@@ -149,8 +163,8 @@ static bool IsFortniteRunning() {
 }
 
 static bool EnterOverlayMode(HINSTANCE hi, AppState& st) {
-    int w = GetSystemMetrics(SM_CXSCREEN);
-    int h = GetSystemMetrics(SM_CYSCREEN);
+    int mx, my, mw, mh;
+    GetPrimaryMonitorRect(&mx, &my, &mw, &mh);
 
     WNDCLASSEXW wc{ sizeof(wc) };
     wc.lpfnWndProc = OverlayProc;
@@ -159,43 +173,63 @@ static bool EnterOverlayMode(HINSTANCE hi, AppState& st) {
     wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
     RegisterClassExW(&wc);
 
+    // No WS_EX_NOACTIVATE — we need the window to receive hotkeys + focus for menu.
     g_overlay = CreateWindowExW(
-        WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TOOLWINDOW,
         L"CipherOverlay", L"Cipher",
-        WS_POPUP, 0, 0, w, h,
+        WS_POPUP,
+        mx, my, mw, mh,
         nullptr, nullptr, hi, nullptr);
     if (!g_overlay) return false;
 
-    // Color-key pure black → transparent where we clear black; draw UI/ESP in non-black
+    // Color-key pure black. UI/ESP draw non-black so they stay visible.
     SetLayeredWindowAttributes(g_overlay, RGB(0, 0, 0), 0, LWA_COLORKEY);
     MARGINS margins{ -1 };
     DwmExtendFrameIntoClientArea(g_overlay, &margins);
 
-    // Hide loader (do not minimize) until the overlay device is actually live.
-    // Minimize left a dead HWND with no D3D device and blocked WM_CLOSE.
+    // Pin hard to primary monitor (stops DVD-bounce / multi-mon drift)
+    SetWindowPos(g_overlay, HWND_TOPMOST, mx, my, mw, mh,
+                 SWP_NOACTIVATE | SWP_SHOWWINDOW);
+
     ShowWindow(g_loader, SW_HIDE);
+
+    // ImGui still holds the OLD device — tear DX11 backend down before we kill the device.
+    ImGui_ImplDX11_Shutdown();
+    ImGui_ImplWin32_Shutdown();
 
     if (!RecreateSwapchainFor(g_overlay)) {
         DestroyWindow(g_overlay);
         g_overlay = nullptr;
+        // Rebuild device on loader so the window is usable again
+        if (RecreateSwapchainFor(g_loader)) {
+            ImGui_ImplWin32_Init(g_loader);
+            ImGui_ImplDX11_Init(g_dev, g_ctx);
+        }
         ShowWindow(g_loader, SW_RESTORE);
         SetForegroundWindow(g_loader);
         return false;
     }
 
-    ImGui_ImplWin32_Shutdown();
     ImGui_ImplWin32_Init(g_overlay);
-    RegisterHotKey(g_overlay, kHotkeyId, 0, VK_INSERT);
+    ImGui_ImplDX11_Init(g_dev, g_ctx);
+
+    // Prefer RegisterHotKey; falls back to GetAsyncKeyState in the loop if this fails
+    if (!RegisterHotKey(g_overlay, kHotkeyId, 0, VK_INSERT)) {
+        // already registered elsewhere — async path will cover it
+    }
 
     g_attachedMode = true;
     st.mode = AppMode::Overlay;
     st.menuOpen = true;
     st.attaching = false;
+    st.openAnim = 1.f;
     Overlay::SetClickThrough(g_overlay, false);
     StreamProof::Set(g_overlay, st.misc.streamproof);
 
     ShowWindow(g_overlay, SW_SHOW);
+    SetWindowPos(g_overlay, HWND_TOPMOST, mx, my, mw, mh, SWP_SHOWWINDOW);
     SetForegroundWindow(g_overlay);
+
     snprintf(st.status, sizeof(st.status), "Overlay live — INSERT toggles menu");
     return true;
 }
@@ -215,7 +249,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     DwmSetWindowAttribute(g_loader, 20, &dark, sizeof(dark));
     DWORD round = 2;
     DwmSetWindowAttribute(g_loader, 33, &round, sizeof(round));
-    MARGINS shadow{ 1,1,1,1 };
+    MARGINS shadow{ 1, 1, 1, 1 };
     DwmExtendFrameIntoClientArea(g_loader, &shadow);
 
     if (!CreateDevice(g_loader)) return 1;
@@ -235,6 +269,8 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     Tex::LoadPNGMemory(g_dev, kLogoSmPng, kLogoSmPng_len, st.logoSm);
     Tex::LoadPNGMemory(g_dev, kLogoLgPng, kLogoLgPng_len, st.logoLg);
 
+    bool insertWasDown = false;
+
     g_running = true;
     while (g_running) {
         MSG msg;
@@ -250,7 +286,28 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
         }
         if (!g_running) break;
 
-        // Loader: poll Fortnite status
+        // INSERT backup (works even if RegisterHotKey lost the key)
+        if (st.mode == AppMode::Overlay) {
+            bool insertDown = (GetAsyncKeyState(VK_INSERT) & 0x8000) != 0;
+            if (insertDown && !insertWasDown) {
+                st.menuOpen = !st.menuOpen;
+                if (g_overlay)
+                    Overlay::SetClickThrough(g_overlay, !st.menuOpen);
+            }
+            insertWasDown = insertDown;
+
+            // Keep overlay pinned topmost on primary (stops drift / bounce)
+            static float pinT = 0.f;
+            pinT += io.DeltaTime;
+            if (pinT > 2.f && g_overlay) {
+                pinT = 0.f;
+                int mx, my, mw, mh;
+                GetPrimaryMonitorRect(&mx, &my, &mw, &mh);
+                SetWindowPos(g_overlay, HWND_TOPMOST, mx, my, mw, mh,
+                             SWP_NOACTIVATE | SWP_SHOWWINDOW);
+            }
+        }
+
         if (st.mode == AppMode::Loader) {
             st.fortniteOpen = IsFortniteRunning();
             if (st.requestAttach) {
@@ -269,25 +326,14 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
                                  "Attach failed (err %lu) — run as Admin / check AC",
                                  (unsigned long)err);
                     } else if (!EnterOverlayMode(hi, st)) {
-                        // Overlay create / device recreate failed — bring loader back with a live device.
                         st.attaching = false;
                         st.mode = AppMode::Loader;
                         g_attachedMode = false;
-                        if (!RecreateSwapchainFor(g_loader)) {
-                            snprintf(st.status, sizeof(st.status), "Device lost — restart Cipher");
-                        } else {
-                            ImGui_ImplWin32_Shutdown();
-                            ImGui_ImplWin32_Init(g_loader);
-                            ShowWindow(g_loader, SW_RESTORE);
-                            SetForegroundWindow(g_loader);
-                            snprintf(st.status, sizeof(st.status), "Overlay failed — try again as Admin");
-                        }
+                        snprintf(st.status, sizeof(st.status), "Overlay failed — try again as Admin");
                     }
-                    // success: EnterOverlayMode already cleared attaching + set mode
                 }
             }
         } else {
-            // Overlay engines — throttle auto-attach so we don't spam OpenProcess every frame
             static float attachCooldown = 0.f;
             attachCooldown -= io.DeltaTime;
             if (st.autoAttach && !st.esp.Attached() && attachCooldown <= 0.f) {
@@ -309,7 +355,6 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
         if (st.mode == AppMode::Loader)
             UI_RenderLoader(st, g_dev, g_loader);
         else {
-            // Always draw world overlays
             st.esp.DrawOverlay();
             st.aim.DrawFovAndRadar(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
             if (st.menuOpen)
@@ -317,11 +362,11 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
         }
 
         ImGui::Render();
-        // Clear: loader uses dark bg; overlay uses pure black for color-key transparency
         float clear[4];
         if (st.mode == AppMode::Loader) {
             clear[0] = 0.04f; clear[1] = 0.04f; clear[2] = 0.05f; clear[3] = 1.f;
         } else {
+            // pure black → color-keyed transparent
             clear[0] = 0.f; clear[1] = 0.f; clear[2] = 0.f; clear[3] = 0.f;
         }
         g_ctx->OMSetRenderTargets(1, &g_rtv, nullptr);
@@ -330,7 +375,7 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
         g_swap->Present(st.misc.vsync ? 1 : 0, 0);
     }
 
-    UnregisterHotKey(g_overlay, kHotkeyId);
+    if (g_overlay) UnregisterHotKey(g_overlay, kHotkeyId);
     Tex::Release(st.logoLg); Tex::Release(st.logoSm);
     ImGui_ImplDX11_Shutdown(); ImGui_ImplWin32_Shutdown(); ImGui::DestroyContext();
     CleanupDevice();
