@@ -1,4 +1,5 @@
 #include "win_pre.h"
+#include <Windows.h>
 #include "ui.h"
 #include "theme.h"
 #include "imgui.h"
@@ -260,18 +261,33 @@ static void DrawVisualsPage(AppState& st) {
 }
 
 static void DrawCombatPage(AppState& st) {
+    auto& a = st.aim.cfg;
     SectionHeader("AIM");
-    ToggleRow("Aimbot", &st.combat.aimbot);
-    ToggleRow("Silent", &st.combat.silent);
-    ToggleRow("Visible check", &st.combat.visibleCheck);
-    SliderRow("FOV", &st.combat.fov, 1.f, 45.f, "%.0f°");
-    SliderRow("Smooth", &st.combat.smooth, 1.f, 20.f, "%.1f");
+    ToggleRow("Aimbot", &a.enabled, "Hold aim key to track targets from ESP list");
+    ToggleRow("Silent", &a.silent, "Hard lock / angle write when offsets exist");
+    ToggleRow("Visible check", &a.visibleCheck);
+    ToggleRow("Draw FOV", &a.drawFov);
+    SliderRow("FOV", &a.fovDeg, 1.f, 45.f, "%.0f deg");
+    SliderRow("Smooth", &a.smooth, 1.f, 20.f, "%.1f");
     ImGui::TextUnformatted("Bone");
     ImGui::SetNextItemWidth(-1);
-    ImGui::Combo("##bone", &st.combat.bone, "Head\0Neck\0Chest\0");
-    ImGui::PushStyleColor(ImGuiCol_Text, Theme::TextDim);
-    ImGui::TextWrapped("Combat is Feature 3 - ESP target list is ready.");
-    ImGui::PopStyleColor();
+    ImGui::Combo("##bone", &a.bone, "Head\0Neck\0Chest\0");
+    ImGui::TextUnformatted("Aim key");
+    ImGui::SetNextItemWidth(-1);
+    // 0 = RButton, 1 = LButton, 2 = XButton1, 3 = LSHIFT
+    static int keySel = 0;
+    if (a.aimKey == VK_LBUTTON) keySel = 1;
+    else if (a.aimKey == VK_XBUTTON1) keySel = 2;
+    else if (a.aimKey == VK_LSHIFT) keySel = 3;
+    else keySel = 0;
+    if (ImGui::Combo("##aimkey", &keySel, "Mouse Right\0Mouse Left\0Mouse X1\0Left Shift\0")) {
+        const int keys[] = { VK_RBUTTON, VK_LBUTTON, VK_XBUTTON1, VK_LSHIFT };
+        a.aimKey = keys[keySel];
+    }
+    ToggleRow("Toggle key", &a.aimKeyToggle, "On = press to toggle aim, Off = hold");
+    ImGui::Spacing();
+    ImGui::TextDisabled("Targets come from the ESP actor list.");
+    ImGui::TextDisabled("Silent needs live camera write offsets for true no-move.");
 }
 
 static void DrawMiscPage(AppState& st) {
@@ -297,29 +313,28 @@ void UI_InitFonts() {
     io.Fonts->AddFontDefault();
 }
 
-void UI_Render(AppState& st, ID3D11Device*) {
+void UI_Render(AppState& st, ID3D11Device*, HWND hwnd) {
     const ImGuiIO& io = ImGui::GetIO();
     const float dt = io.DeltaTime;
 
+    // INSERT is handled by RegisterHotKey in main (works while hidden).
+    // Also allow ImGui key when focused:
     if (ImGui::IsKeyPressed(ImGuiKey_Insert))
         st.menuOpen = !st.menuOpen;
 
-    // ESP tick every frame
+    // Engines always tick
     if (st.autoAttach && !st.esp.Attached())
         st.esp.Attach();
     st.esp.Tick();
     st.esp.DrawOverlay();
 
-    st.openAnim = Theme::Lerp(st.openAnim, st.menuOpen ? 1.f : 0.f, dt * 10.f);
-    if (st.openAnim < 0.01f) {
-        if (st.misc.watermark) {
-            ImDrawList* dl = ImGui::GetForegroundDrawList();
-            const char* wm = "CIPHER";
-            ImVec2 ts = ImGui::CalcTextSize(wm);
-            float pulse = Theme::Pulse(1.4f, 0.35f, 0.75f);
-            dl->AddText(ImVec2(io.DisplaySize.x - ts.x - 16.f, 12.f),
-                        IM_COL32(255, 255, 255, (int)(255 * pulse)), wm);
-        }
+    st.aim.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
+    st.aim.DrawFov((int)io.DisplaySize.x, (int)io.DisplaySize.y);
+
+    st.openAnim = Theme::Lerp(st.openAnim, st.menuOpen ? 1.f : 0.f, dt * 14.f);
+    if (!st.menuOpen || st.openAnim < 0.01f) {
+        // Do not draw menu; main.cpp hides the HWND so no black window
+        (void)hwnd;
         return;
     }
 
@@ -335,53 +350,6 @@ void UI_Render(AppState& st, ID3D11Device*) {
         ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar;
 
     ImGui::Begin("##cipher", nullptr, flags);
-        // Custom window controls (borderless)
-    {
-        ImVec2 wp = ImGui::GetWindowPos();
-        ImVec2 ws = ImGui::GetWindowSize();
-        ImDrawList* dl = ImGui::GetWindowDrawList();
-        const float btn = 28.f;
-        const float pad = 10.f;
-        ImVec2 cMin(wp.x + ws.x - pad - btn * 2.f - 8.f, wp.y + pad);
-        ImGui::SetCursorScreenPos(cMin);
-
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1, 1, 1, 0.08f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1, 1, 1, 0.14f));
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 6.f);
-
-        if (ImGui::Button("##min", ImVec2(btn, btn))) {
-            ShowWindow(GetActiveWindow(), SW_MINIMIZE);
-        }
-        // minimize glyph
-        {
-            ImVec2 a = ImGui::GetItemRectMin();
-            ImVec2 b = ImGui::GetItemRectMax();
-            ImVec2 c((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f);
-            dl->AddLine(ImVec2(c.x - 5.f, c.y), ImVec2(c.x + 5.f, c.y),
-                        IM_COL32(220, 220, 225, 220), 1.5f);
-        }
-
-        ImGui::SameLine(0, 8);
-
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.25f, 0.28f, 0.85f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.95f, 0.30f, 0.32f, 1.f));
-        if (ImGui::Button("##cls", ImVec2(btn, btn))) {
-            PostQuitMessage(0);
-        }
-        {
-            ImVec2 a = ImGui::GetItemRectMin();
-            ImVec2 b = ImGui::GetItemRectMax();
-            ImVec2 c((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f);
-            ImU32 col = IM_COL32(230, 230, 235, 230);
-            dl->AddLine(ImVec2(c.x - 5.f, c.y - 5.f), ImVec2(c.x + 5.f, c.y + 5.f), col, 1.5f);
-            dl->AddLine(ImVec2(c.x + 5.f, c.y - 5.f), ImVec2(c.x - 5.f, c.y + 5.f), col, 1.5f);
-        }
-        ImGui::PopStyleColor(2);
-
-        ImGui::PopStyleVar();
-        ImGui::PopStyleColor(3);
-    }
     ImDrawList* dl = ImGui::GetWindowDrawList();
     ImVec2 wp = ImGui::GetWindowPos();
     ImVec2 ws = ImGui::GetWindowSize();

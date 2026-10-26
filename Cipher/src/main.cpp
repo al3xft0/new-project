@@ -9,7 +9,6 @@
 #include "imgui_impl_dx11.h"
 #include <d3d11.h>
 #include <tchar.h>
-#include <string>
 #include <cstdio>
 #include <dwmapi.h>
 
@@ -22,11 +21,12 @@ static ID3D11RenderTargetView* g_rtv = nullptr;
 static bool                    g_running = true;
 static HWND                    g_hwnd = nullptr;
 
-// Menu size = window size (no OS chrome)
-static const int kMenuW = 760;
-static const int kMenuH = 520;
-static const int kDragH = 64;      // top strip height for dragging
-static const int kSidebarW = 196;  // match UI sidebar — whole sidebar is drag/hit zone helper
+static const int kMenuW    = 760;
+static const int kMenuH    = 520;
+static const int kDragH    = 56;   // top drag only
+static const int kBrandH   = 100;  // sidebar logo zone only (tabs stay client)
+static const int kSidebarW = 196;
+static const int kHotkeyId = 1;
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
@@ -77,13 +77,24 @@ static void CleanupDevice() {
     if (g_device) { g_device->Release(); g_device = nullptr; }
 }
 
+static void SetMenuVisible(bool vis) {
+    if (!g_hwnd) return;
+    ShowWindow(g_hwnd, vis ? SW_SHOW : SW_HIDE);
+}
+
 static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     if (ImGui_ImplWin32_WndProcHandler(hWnd, msg, wParam, lParam))
         return true;
 
     switch (msg) {
+    case WM_HOTKEY:
+        if ((int)wParam == kHotkeyId) {
+            // Toggled in UI_Render via shared state — post a message flag
+            PostMessageW(hWnd, WM_APP + 7, 0, 0);
+        }
+        return 0;
+
     case WM_NCHITTEST: {
-        // Let ImGui controls keep clicks; empty chrome regions drag the window
         LRESULT hit = DefWindowProcW(hWnd, msg, wParam, lParam);
         if (hit != HTCLIENT)
             return hit;
@@ -91,14 +102,19 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         POINT pt{ (SHORT)LOWORD(lParam), (SHORT)HIWORD(lParam) };
         ScreenToClient(hWnd, &pt);
 
-        // Top-right reserve for close / min buttons drawn by ImGui (~80px)
-        if (pt.y < kDragH && pt.x > kMenuW - 90)
+        // Top-right: min/close stay client
+        if (pt.y < kDragH && pt.x > kMenuW - 100)
             return HTCLIENT;
 
-        // Top header strip + left sidebar brand area → draggable
-        if (pt.y < kDragH || pt.x < kSidebarW)
+        // Top header strip only
+        if (pt.y >= 0 && pt.y < kDragH)
             return HTCAPTION;
 
+        // Sidebar brand block ONLY (logo area) — NOT the tab buttons
+        if (pt.x >= 0 && pt.x < kSidebarW && pt.y >= kDragH && pt.y < kBrandH)
+            return HTCAPTION;
+
+        // Tabs + content = client so ImGui receives clicks
         return HTCLIENT;
     }
     case WM_SIZE:
@@ -110,6 +126,7 @@ static LRESULT WINAPI WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
         }
         return 0;
     case WM_DESTROY:
+        UnregisterHotKey(hWnd, kHotkeyId);
         PostQuitMessage(0);
         return 0;
     }
@@ -121,32 +138,27 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
                     nullptr, nullptr, nullptr, nullptr, L"CipherUI", nullptr };
     RegisterClassExW(&wc);
 
-    // Borderless layered-looking popup; size == menu
-    DWORD style = WS_POPUP;
-    DWORD exStyle = WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
-
     int screenW = GetSystemMetrics(SM_CXSCREEN);
     int screenH = GetSystemMetrics(SM_CYSCREEN);
     int posX = (screenW - kMenuW) / 2;
     int posY = (screenH - kMenuH) / 2;
 
     g_hwnd = CreateWindowExW(
-        exStyle, wc.lpszClassName, L"Cipher",
-        style,
+        WS_EX_APPWINDOW | WS_EX_WINDOWEDGE,
+        wc.lpszClassName, L"Cipher",
+        WS_POPUP,
         posX, posY, kMenuW, kMenuH,
         nullptr, nullptr, wc.hInstance, nullptr);
 
-    // Rounded corners on Win11 (ignored on older)
     const DWORD DWMWCP_ROUND = 2;
-    DwmSetWindowAttribute(g_hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */,
-                          (void*)&DWMWCP_ROUND, sizeof(DWMWCP_ROUND));
+    DwmSetWindowAttribute(g_hwnd, 33, (void*)&DWMWCP_ROUND, sizeof(DWMWCP_ROUND));
     BOOL dark = TRUE;
-    DwmSetWindowAttribute(g_hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */,
-                          &dark, sizeof(dark));
-
-    // Subtle window shadow
+    DwmSetWindowAttribute(g_hwnd, 20, &dark, sizeof(dark));
     MARGINS shadow{ 1, 1, 1, 1 };
     DwmExtendFrameIntoClientArea(g_hwnd, &shadow);
+
+    // Global INSERT even when window hidden / unfocused
+    RegisterHotKey(g_hwnd, kHotkeyId, 0, VK_INSERT);
 
     if (!CreateDevice(g_hwnd)) {
         CleanupDevice();
@@ -180,24 +192,41 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
     while (g_running) {
         MSG msg;
         while (PeekMessageW(&msg, nullptr, 0U, 0U, PM_REMOVE)) {
+            if (msg.message == WM_APP + 7) {
+                st.menuOpen = !st.menuOpen;
+                SetMenuVisible(st.menuOpen);
+            }
             TranslateMessage(&msg);
             DispatchMessageW(&msg);
             if (msg.message == WM_QUIT) g_running = false;
         }
         if (!g_running) break;
 
+        // Sync visibility if UI flipped menuOpen without hotkey
+        static bool lastOpen = true;
+        if (st.menuOpen != lastOpen) {
+            SetMenuVisible(st.menuOpen);
+            lastOpen = st.menuOpen;
+        }
+
         ImGui_ImplDX11_NewFrame();
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        UI_Render(st, g_device);
+        UI_Render(st, g_device, g_hwnd);
 
         ImGui::Render();
-        const float clear[4] = { 0.04f, 0.04f, 0.05f, 1.f };
-        g_ctx->OMSetRenderTargets(1, &g_rtv, nullptr);
-        g_ctx->ClearRenderTargetView(g_rtv, clear);
-        ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
-        g_swap->Present(st.misc.vsync ? 1 : 0, 0);
+
+        if (st.menuOpen && IsWindowVisible(g_hwnd)) {
+            const float clear[4] = { 0.04f, 0.04f, 0.05f, 1.f };
+            g_ctx->OMSetRenderTargets(1, &g_rtv, nullptr);
+            g_ctx->ClearRenderTargetView(g_rtv, clear);
+            ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+            g_swap->Present(st.misc.vsync ? 1 : 0, 0);
+        } else {
+            // Window hidden — still run logic; no present of black frame
+            Sleep(1);
+        }
     }
 
     Tex::Release(st.logoLg);
