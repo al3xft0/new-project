@@ -38,6 +38,7 @@ add_executable(Cipher WIN32
     src/overlay.cpp
     src/license_crypto.cpp
     src/license_store.cpp
+    src/license_gate_ui.cpp
 )
 target_include_directories(Cipher PRIVATE src)
 target_link_libraries(Cipher PRIVATE imgui dwmapi)
@@ -48,4 +49,24 @@ target_compile_definitions(Cipher PRIVATE
 if(MSVC)
   target_compile_options(Cipher PRIVATE /W3)
   set_property(TARGET Cipher PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
+# --- Admin panel (separate exe) ---
+add_executable(CipherAdmin WIN32
+    admin/admin_main.cpp
+    src/license_crypto.cpp
+    src/license_store.cpp
+    src/theme.cpp
+)
+target_include_directories(CipherAdmin PRIVATE
+    src
+    admin
+)
+target_link_libraries(CipherAdmin PRIVATE imgui dwmapi)
+target_compile_definitions(CipherAdmin PRIVATE
+    UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX _CRT_SECURE_NO_WARNINGS
+)
+if(MSVC)
+  target_compile_options(CipherAdmin PRIVATE /W3)
+  set_property(TARGET CipherAdmin PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
