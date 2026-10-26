@@ -399,31 +399,10 @@ void UI_RenderOverlay(AppState& st, ID3D11Device*, HWND hwnd) {
     const ImGuiIO& io = ImGui::GetIO();
     const float dt = io.DeltaTime;
 
-    // INSERT is handled by RegisterHotKey in main (works while hidden).
-    // Also allow ImGui key when focused:
-    if (ImGui::IsKeyPressed(ImGuiKey_Insert))
-        st.menuOpen = !st.menuOpen;
+    // INSERT handled only in main (GetAsyncKeyState edge). Do not toggle here.
+    // Engines tick in main — do not double-tick here.
 
-    // Engines always tick
-    if (st.autoAttach && !st.esp.Attached())
-        st.esp.Attach();
-    st.esp.Tick();
-    st.esp.DrawOverlay();
-
-    st.aim.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-    st.aim.DrawFovAndRadar(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-    st.trigger.Tick(st.esp, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-    st.exploits.Tick(st.esp);
-    {
-        static bool lastSp = false, init = false;
-        if (!init || st.misc.streamproof != lastSp) {
-            StreamProof::Set(hwnd, st.misc.streamproof);
-            lastSp = st.misc.streamproof;
-            init = true;
-        }
-    }
-
-    st.openAnim = Theme::Lerp(st.openAnim, st.menuOpen ? 1.f : 0.f, dt * 14.f);
+    st.openAnim = Theme::Lerp(st.openAnim, st.menuOpen ? 1.f : 0.f, dt * 18.f);
     if (!st.menuOpen || st.openAnim < 0.01f) {
         // Do not draw menu; main.cpp hides the HWND so no black window
         (void)hwnd;
@@ -450,9 +429,9 @@ void UI_RenderOverlay(AppState& st, ID3D11Device*, HWND hwnd) {
     ImVec2 wp = ImGui::GetWindowPos();
     ImVec2 ws = ImGui::GetWindowSize();
 
-    // solid panel bg
+    // solid panel bg — must NOT be pure black (color-key would make it invisible)
     dl->AddRectFilled(wp, ImVec2(wp.x + ws.x, wp.y + ws.y),
-                      ImGui::ColorConvertFloat4ToU32(Theme::BgPanel), 12.f);
+                      IM_COL32(14, 14, 18, 255), 12.f);
     dl->AddRect(wp, ImVec2(wp.x + ws.x, wp.y + ws.y),
                 ImGui::ColorConvertFloat4ToU32(Theme::Border), 12.f, 0, 1.2f);
 

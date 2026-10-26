@@ -161,17 +161,20 @@ static bool EnterOverlayMode(HINSTANCE hi, AppState& st) {
         nullptr, nullptr, hi, nullptr);
     if (!g_overlay) return false;
 
-    // Color-key pure black → transparent where we clear black; draw UI/ESP in non-black
+    // Color-key pure black only. Menu draws non-black so it stays visible.
     SetLayeredWindowAttributes(g_overlay, RGB(0, 0, 0), 0, LWA_COLORKEY);
     MARGINS margins{ -1 };
     DwmExtendFrameIntoClientArea(g_overlay, &margins);
 
-    // Hide loader (not minimize) so it does not leave a dead zombie window
     ShowWindow(g_loader, SW_HIDE);
 
-    // ImGui DX11 still holds the OLD device — must tear it down BEFORE we destroy the device
+    // Kill ImGui backends BEFORE destroying the D3D device they reference
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();
+
+    // Old textures belong to the old device — release them now
+    Tex::Release(st.logoLg);
+    Tex::Release(st.logoSm);
 
     if (!RecreateSwapchainFor(g_overlay)) {
         DestroyWindow(g_overlay);
@@ -179,6 +182,8 @@ static bool EnterOverlayMode(HINSTANCE hi, AppState& st) {
         if (RecreateSwapchainFor(g_loader)) {
             ImGui_ImplWin32_Init(g_loader);
             ImGui_ImplDX11_Init(g_dev, g_ctx);
+            Tex::LoadPNGMemory(g_dev, kLogoSmPng, kLogoSmPng_len, st.logoSm);
+            Tex::LoadPNGMemory(g_dev, kLogoLgPng, kLogoLgPng_len, st.logoLg);
         }
         ShowWindow(g_loader, SW_RESTORE);
         SetForegroundWindow(g_loader);
@@ -187,19 +192,26 @@ static bool EnterOverlayMode(HINSTANCE hi, AppState& st) {
 
     ImGui_ImplWin32_Init(g_overlay);
     ImGui_ImplDX11_Init(g_dev, g_ctx);
-    RegisterHotKey(g_overlay, kHotkeyId, 0, VK_INSERT);
+
+    // Reload logos on the NEW device (old SRVs were invalid → broken logo)
+    Tex::LoadPNGMemory(g_dev, kLogoSmPng, kLogoSmPng_len, st.logoSm);
+    Tex::LoadPNGMemory(g_dev, kLogoLgPng, kLogoLgPng_len, st.logoLg);
+
+    // ONE input path only: GetAsyncKeyState in the main loop (no RegisterHotKey)
+    // RegisterHotKey + async was double-toggling → menu flash / hold-to-see
 
     g_attachedMode = true;
     st.mode = AppMode::Overlay;
-    st.menuOpen = false;          // off by default — INSERT opens
-    st.openAnim = 0.f;
+    st.menuOpen = true;     // open once so attach is visible; INSERT toggles after
+    st.openAnim = 1.f;
     st.attaching = false;
-    Overlay::SetClickThrough(g_overlay, true);  // game receives input until menu open
+    Overlay::SetClickThrough(g_overlay, false);
     StreamProof::Set(g_overlay, st.misc.streamproof);
 
-    ShowWindow(g_overlay, SW_SHOW);
-    // do not steal focus from Fortnite
-    snprintf(st.status, sizeof(st.status), "Overlay live — INSERT toggles menu");
+    ShowWindow(g_overlay, SW_SHOWNA);
+    SetWindowPos(g_overlay, HWND_TOPMOST, 0, 0, w, h, SWP_SHOWWINDOW | SWP_NOACTIVATE);
+
+    snprintf(st.status, sizeof(st.status), "Attached — INSERT toggles menu");
     return true;
 }
 
@@ -292,11 +304,12 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
             if (st.misc.streamproof)
                 StreamProof::Set(g_overlay, true);
 
-            // INSERT backup if RegisterHotKey is blocked
+            // Single INSERT edge-detect (only toggle path — no RegisterHotKey, no ImGui key)
             static bool insertWasDown = false;
             bool insertDown = (GetAsyncKeyState(VK_INSERT) & 0x8000) != 0;
             if (insertDown && !insertWasDown) {
                 st.menuOpen = !st.menuOpen;
+                st.openAnim = st.menuOpen ? 1.f : 0.f;
                 if (g_overlay)
                     Overlay::SetClickThrough(g_overlay, !st.menuOpen);
             }
@@ -331,7 +344,6 @@ int WINAPI wWinMain(HINSTANCE hi, HINSTANCE, LPWSTR, int) {
         g_swap->Present(st.misc.vsync ? 1 : 0, 0);
     }
 
-    UnregisterHotKey(g_overlay, kHotkeyId);
     Tex::Release(st.logoLg); Tex::Release(st.logoSm);
     ImGui_ImplDX11_Shutdown(); ImGui_ImplWin32_Shutdown(); ImGui::DestroyContext();
     CleanupDevice();
