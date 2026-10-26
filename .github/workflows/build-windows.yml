@@ -1,0 +1,48 @@
+# Cipher — GitHub Actions MSVC build
+# Place at: .github/workflows/build-windows.yml
+#
+# Needs your solution/project checked in (Cipher.sln or similar).
+# Adjust paths below to match your repo layout.
+
+name: Build Cipher
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Setup VS Dev environment
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      # If you use a .sln:
+      - name: Build solution
+        run: |
+          msbuild Cipher.sln /p:Configuration=Release /p:Platform=x64 /m
+        # Change Cipher.sln to your real solution name
+
+      # Or single vcxproj:
+      # - name: Build project
+      #   run: msbuild src\Cipher.vcxproj /p:Configuration=Release /p:Platform=x64 /m
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipher-release-x64
+          path: |
+            **/Release/**/*.exe
+            **/x64/Release/**/*.exe
+            **/Release/**/*.dll
+          if-no-files-found: warn
