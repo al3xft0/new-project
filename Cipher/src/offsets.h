@@ -107,6 +107,12 @@ namespace off {
     inline uintptr_t LocationUnderReticle = 0x21B0;
     inline uintptr_t RotationInput       = 0x4B0;
 
+    inline uintptr_t MaxWalkSpeed        = 0x218;  // CharacterMovementComponent — verify
+    inline uintptr_t DefaultFOV          = 0x284;  // PlayerCameraManager::DefaultFOV
+    inline uintptr_t RecoilProcessingShotCounter = 0x25F4;
+    inline uintptr_t BulletCountForPerBulletRecoil = 0x25F0;
+    inline uintptr_t TimeRemainingForBulletSpread = 0x2600;
+    inline uintptr_t BulletCountForPerBulletSpread = 0x25FC;
     namespace bone {
         inline int Head = 68, Neck = 67, Chest = 66, Pelvis = 2;
         inline int LShoulder = 9, LElbow = 10, LHand = 11;
