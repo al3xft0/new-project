@@ -10,7 +10,7 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2022
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -18,44 +18,72 @@ jobs:
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
-      - name: Install Windows Driver Kit (WDK)
+      - name: Install Windows 11 SDK + WDK (matching)
         shell: pwsh
         run: |
-          # Install WDK matching the runner's Windows SDK
-          # Using the NuGet-based approach that works on windows-latest
           $ErrorActionPreference = "Stop"
-          Write-Host "Installing WDK components..."
-          # windows-latest already has VS + Windows SDK; install WDK extension
-          # Fallback: use EWDK style if needed
+          # Install WDK 10 via chocolatey (pulls matching bits for VS 2022)
           choco install windowsdriverkit10 --yes --no-progress
-          Write-Host "WDK install step finished"
+          # Also ensure the kit is visible
+          Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" | Select-Object Name
+          Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Lib" -ErrorAction SilentlyContinue | Select-Object Name
 
-      - name: Locate WDK / build tools
+      - name: Set WDK environment for MSBuild
         shell: pwsh
         run: |
-          Write-Host "VS path:"
-          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-          Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -ErrorAction SilentlyContinue | Select-Object Name
+          $ErrorActionPreference = "Stop"
+          # Find the highest 10.0 kit version that has km\ntddk.h
+          $kitRoot = "C:\Program Files (x86)\Windows Kits\10"
+          $includeRoot = Join-Path $kitRoot "Include"
+          $versions = Get-ChildItem $includeRoot -Directory | Where-Object {
+            Test-Path (Join-Path $_.FullName "km\ntddk.h")
+          } | Sort-Object Name -Descending
+          if (-not $versions) {
+            Write-Host "ERROR: no kit version with km\\ntddk.h found"
+            Get-ChildItem $includeRoot -Recurse -Filter "ntddk.h" -ErrorAction SilentlyContinue | Select-Object FullName
+            throw "WDK kernel headers missing"
+          }
+          $ver = $versions[0].Name
+          Write-Host "Using Windows kit version: $ver"
+          echo "WDK_VERSION=$ver" >> $env:GITHUB_ENV
+          echo "WindowsSdkDir=$kitRoot\" >> $env:GITHUB_ENV
+          echo "WindowsSDKVersion=$ver\" >> $env:GITHUB_ENV
 
       - name: Build cipher_drv (Release x64)
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
           $proj = "cipher_drv\cipher_drv.vcxproj"
-          if (-not (Test-Path $proj)) { $proj = "cipher_drv.vcxproj" }
-          msbuild $proj /p:Configuration=Release /p:Platform=x64 /p:TargetVersion=Windows10 /m /v:minimal
-          if ($LASTEXITCODE -ne 0) { throw "msbuild failed" }
+          if (-not (Test-Path $proj)) { throw "project not found: $proj" }
 
-      - name: Locate output .sys
+          # Force the kit version we detected so ntddk.h resolves
+          $ver = $env:WDK_VERSION
+          Write-Host "Building with WindowsTargetPlatformVersion=$ver"
+
+          msbuild $proj `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:WindowsTargetPlatformVersion=$ver `
+            /p:DriverTargetPlatform=Universal `
+            /m /v:minimal
+
+          if ($LASTEXITCODE -ne 0) { throw "msbuild failed with $LASTEXITCODE" }
+
+      - name: Locate output
         shell: pwsh
         run: |
-          Get-ChildItem -Recurse -Filter "cipher_drv.sys" | ForEach-Object { Write-Host $_.FullName }
+          Get-ChildItem -Recurse -Filter "cipher_drv.sys" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "SYS: $($_.FullName)"
+          }
+          Get-ChildItem -Recurse -Filter "cipher_drv.pdb" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "PDB: $($_.FullName)"
+          }
 
-      - name: Upload cipher_drv.sys
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: cipher_drv-sys
           path: |
             **/cipher_drv.sys
             **/cipher_drv.pdb
-          if-no-files-found: warn
+          if-no-files-found: error

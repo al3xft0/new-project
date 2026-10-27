@@ -1,27 +1,24 @@
-#include <ntddk.h>
+#include <ntifs.h>
 #include "../include/physmem.h"
 #include "../include/comm.h"
 #include "../include/log.h"
 
-// Forward from commands.c
 void cipher_handle_request(const struct cipher_request* req,
                            struct cipher_response* resp,
-                           void* data_buf, size_t data_cap);
+                           void* data_buf, SIZE_T data_cap);
 
 static BOOLEAN g_ready = FALSE;
 
-// Called by the mapper after the image is copied and relocs are applied.
-// Signature matches what most manual mappers expect:
-//   NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
-// For pure manual map (MSRMapper / kdmapper style) both args may be NULL.
 NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
 {
+    NTSTATUS status;
+
     UNREFERENCED_PARAMETER(DriverObject);
     UNREFERENCED_PARAMETER(RegistryPath);
 
     cipher_log("DriverEntry");
 
-    NTSTATUS status = physmem_init();
+    status = physmem_init();
     if (!NT_SUCCESS(status)) {
         cipher_err("physmem_init failed 0x%X", status);
         return status;
@@ -41,7 +38,6 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT DriverObject, PUNICODE_STRING RegistryPath)
     return STATUS_SUCCESS;
 }
 
-// Optional clean unload if the mapper supports it later
 void DriverUnload(PDRIVER_OBJECT DriverObject)
 {
     UNREFERENCED_PARAMETER(DriverObject);

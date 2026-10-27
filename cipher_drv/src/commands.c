@@ -1,11 +1,11 @@
+#include <ntifs.h>
 #include "../include/shared.h"
 #include "../include/physmem.h"
 #include "../include/log.h"
-#include <ntddk.h>
 
 void cipher_handle_request(const struct cipher_request* req,
                            struct cipher_response* resp,
-                           void* data_buf, size_t data_cap)
+                           void* data_buf, SIZE_T data_cap)
 {
     resp->magic   = CIPHER_MAGIC;
     resp->version = CIPHER_VERSION;
@@ -16,16 +16,16 @@ void cipher_handle_request(const struct cipher_request* req,
 
     switch (req->cmd) {
     case CMD_PING:
-        resp->size = 0;
         cipher_log("ping");
         break;
 
     case CMD_READ: {
+        NTSTATUS st;
         if (req->size == 0 || req->size > data_cap || req->address == 0) {
             resp->status = ST_INVALID_PARAM;
             break;
         }
-        NTSTATUS st = physmem_read_virtual(req->cr3, req->address, data_buf, req->size);
+        st = physmem_read_virtual(req->cr3, req->address, data_buf, req->size);
         if (!NT_SUCCESS(st)) {
             resp->status = ST_READ_FAIL;
             break;
@@ -36,12 +36,12 @@ void cipher_handle_request(const struct cipher_request* req,
     }
 
     case CMD_WRITE: {
+        NTSTATUS st;
         if (req->size == 0 || req->size > data_cap || req->address == 0) {
             resp->status = ST_INVALID_PARAM;
             break;
         }
-        // data to write is already in data_buf (usermode wrote it after the request header)
-        NTSTATUS st = physmem_write_virtual(req->cr3, req->address, data_buf, req->size);
+        st = physmem_write_virtual(req->cr3, req->address, data_buf, req->size);
         if (!NT_SUCCESS(st)) {
             resp->status = ST_WRITE_FAIL;
             break;
@@ -52,16 +52,16 @@ void cipher_handle_request(const struct cipher_request* req,
     }
 
     case CMD_ALLOC: {
-        size_t alloc_size = req->size ? req->size : PAGE_SIZE;
+        SIZE_T alloc_size = req->size ? (SIZE_T)req->size : PAGE_SIZE;
         PVOID p = ExAllocatePoolWithTag(NonPagedPool, alloc_size, 'hpiC');
         if (!p) {
             resp->status = ST_ALLOC_FAIL;
             break;
         }
         RtlZeroMemory(p, alloc_size);
-        resp->address = (uint64_t)p;
-        resp->size    = (uint32_t)alloc_size;
-        cipher_log("alloc %u bytes @ %p", (unsigned)alloc_size, p);
+        resp->address = (UINT64)(ULONG_PTR)p;
+        resp->size    = (UINT32)alloc_size;
+        cipher_log("alloc %lu bytes @ %p", (unsigned long)alloc_size, p);
         break;
     }
 
@@ -70,16 +70,14 @@ void cipher_handle_request(const struct cipher_request* req,
             resp->status = ST_INVALID_PARAM;
             break;
         }
-        ExFreePoolWithTag((PVOID)req->address, 'hpiC');
+        ExFreePoolWithTag((PVOID)(ULONG_PTR)req->address, 'hpiC');
         resp->address = req->address;
         break;
     }
 
-    case CMD_GET_CR3: {
-        // Phase 2: return current process CR3 (system context when called from our thread)
+    case CMD_GET_CR3:
         resp->cr3 = __readcr3();
         break;
-    }
 
     default:
         resp->status = ST_INVALID_CMD;
