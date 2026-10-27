@@ -1,0 +1,4 @@
+- name: build cipher_ping
+  run: |
+    cd cipher_ping
+    cl /EHsc /O2 /W3 main.cpp /Fe:cipher_ping.exe
