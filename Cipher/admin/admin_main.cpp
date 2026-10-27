@@ -432,17 +432,20 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
             ImGui::PopItemWidth();
 
             // child list
-            ImGui::SetCursorScreenPos(ImVec2(la.x + 12, la.y + 48));
-            ImGui::BeginChild("##keylist", ImVec2(contentW - 24.f, listH - 60.f), false,
+            ImGui::SetCursorScreenPos(ImVec2(la.x + 14, la.y + 50));
+            float childW = contentW - 28.f;
+            float childH = listH - 64.f;
+            ImGui::BeginChild("##keylist", ImVec2(childW, childH), false,
                               ImGuiWindowFlags_NoBackground);
 
             ImDrawList* cdl = ImGui::GetWindowDrawList();
             ImVec2 childPos = ImGui::GetCursorScreenPos();
-            float  rowH     = 82.f;
+            float  rowH     = 78.f;
             float  yOff     = 0.f;
             int    visibleIdx = 0;
 
             if (recs.empty()) {
+                ImGui::SetCursorScreenPos(ImVec2(childPos.x + 8, childPos.y + 8));
                 ImGui::TextDisabled("No keys yet — generate one above.");
             }
 
@@ -453,29 +456,31 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
                     r.info.note.find(filterBuf) == std::string::npos)
                     continue;
 
-                // staggered entrance for rows
+                // staggered entrance
                 float rowDelay = visibleIdx * 0.045f;
-                float rowT = Clamp01((contentAnim - 0.25f - rowDelay) * 2.8f);
+                float rowT = Clamp01((contentAnim - 0.22f - rowDelay) * 2.8f);
                 float rowA = EaseOutCubic(rowT);
-                float rowSlide = (1.f - rowA) * 18.f;
+                float rowSlide = (1.f - rowA) * 16.f;
 
                 float rowY = childPos.y + yOff + rowSlide;
-                ImVec2 rowApos(childPos.x, rowY);
-                ImVec2 rowBpos(childPos.x + contentW - 40.f, rowY + rowH - 10.f);
+                // full width of the child, small side pad only
+                ImVec2 rowApos(childPos.x + 2.f, rowY);
+                ImVec2 rowBpos(childPos.x + childW - 6.f, rowY + rowH - 8.f);
+                float rowW = rowBpos.x - rowApos.x;
 
                 bool hovered = ImGui::IsMouseHoveringRect(rowApos, rowBpos) && rowA > 0.85f;
                 if (i < rowHover.size())
                     rowHover[i] = Lerp(rowHover[i], hovered ? 1.f : 0.f, 1.f - expf(-dt * 14.f));
                 float hov = (i < rowHover.size()) ? rowHover[i] : 0.f;
 
-                // row background
-                int bgA = (int)((170 + 50 * hov) * rowA);
-                cdl->AddRectFilled(rowApos, rowBpos, IM_COL32(26, 26, 31, bgA), 11.f);
-                cdl->AddRect(rowApos, rowBpos, IM_COL32(48, 48, 56, (int)(140 * rowA)), 11.f, 0, 1.f);
+                // single solid row background (no seam)
+                int bgA = (int)((175 + 45 * hov) * rowA);
+                cdl->AddRectFilled(rowApos, rowBpos, IM_COL32(26, 26, 31, bgA), 10.f);
+                cdl->AddRect(rowApos, rowBpos, IM_COL32(50, 50, 58, (int)(130 * rowA)), 10.f, 0, 1.f);
                 if (hov > 0.05f) {
-                    cdl->AddRect(ImVec2(rowApos.x - 1, rowApos.y - 1),
-                                 ImVec2(rowBpos.x + 1, rowBpos.y + 1),
-                                 IM_COL32(110, 150, 255, (int)(35 * hov * rowA)), 12.f, 0, 1.4f);
+                    cdl->AddRect(ImVec2(rowApos.x - 0.5f, rowApos.y - 0.5f),
+                                 ImVec2(rowBpos.x + 0.5f, rowBpos.y + 0.5f),
+                                 IM_COL32(110, 150, 255, (int)(32 * hov * rowA)), 11.f, 0, 1.3f);
                 }
 
                 // status pill
@@ -489,34 +494,35 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
                     lab = "Expired";
                     pillCol = IM_COL32(200, 155, 55, 255);
                 }
-                ImVec2 pillA(rowApos.x + 14, rowApos.y + 12);
+                ImVec2 pillA(rowApos.x + 12, rowApos.y + 10);
                 ImVec2 pillSz = ImGui::CalcTextSize(lab);
-                ImVec2 pillB(pillA.x + pillSz.x + 16, pillA.y + 18);
-                cdl->AddRectFilled(pillA, pillB, (pillCol & 0x00FFFFFF) | 0x28000000, 6.f);
-                cdl->AddText(ImVec2(pillA.x + 8, pillA.y + 2),
+                ImVec2 pillB(pillA.x + pillSz.x + 14, pillA.y + 17);
+                cdl->AddRectFilled(pillA, pillB, (pillCol & 0x00FFFFFF) | 0x28000000, 5.f);
+                cdl->AddText(ImVec2(pillA.x + 7, pillA.y + 1),
                              (pillCol & 0x00FFFFFF) | ((int)(255 * rowA) << 24), lab);
 
-                // meta
+                // meta (id / days / left / date)
                 char meta[128], expBuf[32], leftBuf[32];
                 FormatExpiry(r.info.expiresUnix, expBuf, sizeof(expBuf));
                 DaysLeft(r.info.expiresUnix, leftBuf, sizeof(leftBuf));
                 snprintf(meta, sizeof(meta), "id %u  ·  %u days  ·  %s  ·  %s",
                          r.info.id, r.info.durationDays, leftBuf, expBuf);
-                cdl->AddText(ImVec2(pillB.x + 12, rowApos.y + 13),
+                cdl->AddText(ImVec2(pillB.x + 10, rowApos.y + 11),
                              IM_COL32(125, 125, 135, (int)(255 * rowA)), meta);
 
-                // key string
-                ImGui::SetCursorScreenPos(ImVec2(rowApos.x + 14, rowApos.y + 38));
+                // key string — full width under meta
+                ImGui::SetCursorScreenPos(ImVec2(rowApos.x + 12, rowApos.y + 34));
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.88f, 0.88f, 0.91f, rowA));
                 ImGui::TextUnformatted(r.key.c_str());
                 ImGui::PopStyleColor();
 
-                // actions
-                ImGui::SetCursorScreenPos(ImVec2(rowApos.x + (contentW - 40.f) - 152, rowApos.y + 11));
+                // actions top-right of the row
+                float btnX = rowBpos.x - 140.f;
+                ImGui::SetCursorScreenPos(ImVec2(btnX, rowApos.y + 9));
                 ImGui::PushStyleVar(ImGuiStyleVar_Alpha, rowA);
                 if (ImGui::SmallButton("Copy"))
                     ImGui::SetClipboardText(r.key.c_str());
-                ImGui::SameLine();
+                ImGui::SameLine(0, 6);
                 if (st != License::Status::Revoked) {
                     ImGui::PushStyleColor(ImGuiCol_Button,        ImVec4(0.85f, 0.25f, 0.28f, 0.20f));
                     ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.85f, 0.25f, 0.28f, 0.38f));
@@ -529,14 +535,15 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
                 }
                 ImGui::PopStyleVar();
 
+                // optional note under key
                 if (!r.info.note.empty()) {
-                    ImGui::SetCursorScreenPos(ImVec2(rowApos.x + 14, rowApos.y + 56));
-                    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, rowA * 0.7f);
+                    ImGui::SetCursorScreenPos(ImVec2(rowApos.x + 12, rowApos.y + 52));
+                    ImGui::PushStyleVar(ImGuiStyleVar_Alpha, rowA * 0.65f);
                     ImGui::TextDisabled("%s", r.info.note.c_str());
                     ImGui::PopStyleVar();
                 }
 
-                // grow content region (assert kill)
+                // grow content region (keeps ImGui assert dead)
                 ImGui::SetCursorScreenPos(ImVec2(rowApos.x, rowApos.y + rowH));
                 ImGui::Dummy(ImVec2(1.f, 0.1f));
 
@@ -544,7 +551,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
                 visibleIdx++;
             }
 
-            ImGui::Dummy(ImVec2(1.f, 10.f));
+            ImGui::Dummy(ImVec2(1.f, 8.f));
             ImGui::EndChild();
 
             // ── footer ─────────────────────────────────────────────────────
