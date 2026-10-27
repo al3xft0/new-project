@@ -1,0 +1,89 @@
+# Build cipher_drv.sys on GitHub Actions (Windows + WDK)
+name: Build cipher_drv
+
+on:
+  push:
+    paths:
+      - 'cipher_drv/**'
+      - '.github/workflows/build-driver.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Add MSBuild to PATH
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Install Windows 11 SDK + WDK (matching)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          # Install WDK 10 via chocolatey (pulls matching bits for VS 2022)
+          choco install windowsdriverkit10 --yes --no-progress
+          # Also ensure the kit is visible
+          Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" | Select-Object Name
+          Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Lib" -ErrorAction SilentlyContinue | Select-Object Name
+
+      - name: Set WDK environment for MSBuild
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          # Find the highest 10.0 kit version that has km\ntddk.h
+          $kitRoot = "C:\Program Files (x86)\Windows Kits\10"
+          $includeRoot = Join-Path $kitRoot "Include"
+          $versions = Get-ChildItem $includeRoot -Directory | Where-Object {
+            Test-Path (Join-Path $_.FullName "km\ntddk.h")
+          } | Sort-Object Name -Descending
+          if (-not $versions) {
+            Write-Host "ERROR: no kit version with km\\ntddk.h found"
+            Get-ChildItem $includeRoot -Recurse -Filter "ntddk.h" -ErrorAction SilentlyContinue | Select-Object FullName
+            throw "WDK kernel headers missing"
+          }
+          $ver = $versions[0].Name
+          Write-Host "Using Windows kit version: $ver"
+          echo "WDK_VERSION=$ver" >> $env:GITHUB_ENV
+          echo "WindowsSdkDir=$kitRoot\" >> $env:GITHUB_ENV
+          echo "WindowsSDKVersion=$ver\" >> $env:GITHUB_ENV
+
+      - name: Build cipher_drv (Release x64)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $proj = "cipher_drv\cipher_drv.vcxproj"
+          if (-not (Test-Path $proj)) { throw "project not found: $proj" }
+
+          # Force the kit version we detected so ntddk.h resolves
+          $ver = $env:WDK_VERSION
+          Write-Host "Building with WindowsTargetPlatformVersion=$ver"
+
+          msbuild $proj `
+            /p:Configuration=Release `
+            /p:Platform=x64 `
+            /p:WindowsTargetPlatformVersion=$ver `
+            /p:DriverTargetPlatform=Universal `
+            /m /v:minimal
+
+          if ($LASTEXITCODE -ne 0) { throw "msbuild failed with $LASTEXITCODE" }
+
+      - name: Locate output
+        shell: pwsh
+        run: |
+          Get-ChildItem -Recurse -Filter "cipher_drv.sys" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "SYS: $($_.FullName)"
+          }
+          Get-ChildItem -Recurse -Filter "cipher_drv.pdb" -ErrorAction SilentlyContinue | ForEach-Object {
+            Write-Host "PDB: $($_.FullName)"
+          }
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cipher_drv-sys
+          path: |
+            **/cipher_drv.sys
+            **/cipher_drv.pdb
+          if-no-files-found: error
