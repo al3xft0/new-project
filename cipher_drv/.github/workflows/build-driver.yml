@@ -1,0 +1,50 @@
+name: Build cipher_drv
+
+on:
+  push:
+    paths:
+      - 'cipher_drv/**'
+      - '.github/workflows/build-driver.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: microsoft/setup-msbuild@v2
+
+      - name: Install WDK
+        shell: pwsh
+        run: choco install windowsdriverkit10 --yes --no-progress
+
+      - name: Detect kit version
+        shell: pwsh
+        run: |
+          $includeRoot = "C:\Program Files (x86)\Windows Kits\10\Include"
+          $versions = Get-ChildItem $includeRoot -Directory | Where-Object {
+            Test-Path (Join-Path $_.FullName "km\ntddk.h")
+          } | Sort-Object Name -Descending
+          if (-not $versions) { throw "WDK kernel headers missing" }
+          echo "WDK_VERSION=$($versions[0].Name)" >> $env:GITHUB_ENV
+          Write-Host "Using kit $($versions[0].Name)"
+
+      - name: Build cipher_drv
+        shell: pwsh
+        run: |
+          $proj = "cipher_drv\cipher_drv.vcxproj"
+          msbuild $proj /p:Configuration=Release /p:Platform=x64 `
+            /p:WindowsTargetPlatformVersion=$env:WDK_VERSION `
+            /p:SignMode=Off /m /v:minimal
+          $sys = Get-ChildItem -Recurse -Filter "cipher_drv.sys" -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $sys) { throw "cipher_drv.sys not produced" }
+          Write-Host "BUILT: $($sys.FullName)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cipher_drv-sys
+          path: |
+            **/cipher_drv.sys
+            **/cipher_drv.pdb
+          if-no-files-found: error
