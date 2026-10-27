@@ -27,7 +27,6 @@ static HWND                     g_hwnd = nullptr;
 
 extern IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
 
-// ─── easing ────────────────────────────────────────────────────────────────
 static float EaseOutCubic(float t) {
     float u = 1.f - t;
     return 1.f - u * u * u;
@@ -39,7 +38,6 @@ static float EaseOutBack(float t) {
 }
 static float Lerp(float a, float b, float t) { return a + (b - a) * t; }
 
-// ─── win32 ─────────────────────────────────────────────────────────────────
 static LRESULT WINAPI WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     if (ImGui_ImplWin32_WndProcHandler(h, m, w, l)) return true;
     switch (m) {
@@ -100,7 +98,6 @@ static void DaysLeft(uint32_t expiresUnix, char* buf, size_t n) {
     else snprintf(buf, n, "%d days left", d);
 }
 
-// ─── soft draw helpers ─────────────────────────────────────────────────────
 static void DrawSoftShadow(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float spread = 8.f) {
     for (int i = 3; i >= 1; --i) {
         float o = spread * (float)i / 3.f;
@@ -113,20 +110,12 @@ static void DrawSoftShadow(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float sp
 
 static void DrawCard(ImDrawList* dl, ImVec2 a, ImVec2 b, float r, float alpha = 1.f) {
     DrawSoftShadow(dl, a, b, r);
-    // subtle top highlight
     dl->AddRectFilled(a, b, IM_COL32(22, 22, 26, (int)(255 * alpha)), r);
     dl->AddRect(a, b, IM_COL32(48, 48, 56, (int)(180 * alpha)), r, 0, 1.f);
-    // inner top glow line
     dl->AddLine(ImVec2(a.x + r, a.y + 1), ImVec2(b.x - r, a.y + 1),
                 IM_COL32(255, 255, 255, (int)(18 * alpha)), 1.f);
 }
 
-static void DrawAccentPill(ImDrawList* dl, ImVec2 a, ImVec2 b, ImU32 col, float r = 6.f) {
-    dl->AddRectFilled(a, b, (col & 0x00FFFFFF) | 0x28000000, r);
-    dl->AddText(ImVec2(a.x + 8, a.y + 3), col, ""); // placeholder, text drawn by caller
-}
-
-// simple geometric icons (no font atlas needed)
 static void IconKey(ImDrawList* dl, ImVec2 c, float s, ImU32 col) {
     dl->AddCircle(ImVec2(c.x - s * 0.25f, c.y), s * 0.35f, col, 12, 1.6f);
     dl->AddLine(ImVec2(c.x + s * 0.05f, c.y), ImVec2(c.x + s * 0.55f, c.y), col, 1.6f);
@@ -148,14 +137,6 @@ static void IconPlus(ImDrawList* dl, ImVec2 c, float s, ImU32 col) {
     dl->AddLine(ImVec2(c.x, c.y - s * 0.35f), ImVec2(c.x, c.y + s * 0.35f), col, 1.8f);
 }
 
-static void IconCopy(ImDrawList* dl, ImVec2 c, float s, ImU32 col) {
-    dl->AddRect(ImVec2(c.x - s * 0.2f, c.y - s * 0.35f),
-                ImVec2(c.x + s * 0.35f, c.y + s * 0.2f), col, 2.f, 0, 1.4f);
-    dl->AddRect(ImVec2(c.x - s * 0.4f, c.y - s * 0.15f),
-                ImVec2(c.x + s * 0.15f, c.y + s * 0.4f), col, 2.f, 0, 1.4f);
-}
-
-// ─── main ──────────────────────────────────────────────────────────────────
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     WNDCLASSEXW wc{ sizeof(wc), CS_CLASSDC, WndProc, 0, 0, GetModuleHandle(nullptr),
                     nullptr, nullptr, nullptr, nullptr, L"CipherAdmin", nullptr };
@@ -165,7 +146,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         WS_POPUP | WS_VISIBLE, 100, 100, 720, 560, nullptr, nullptr, wc.hInstance, nullptr);
 
     BOOL dark = TRUE;
-    DwmSetWindowAttribute(g_hwnd, 20, &dark, sizeof(dark)); // DWMWA_USE_IMMERSIVE_DARK_MODE
+    DwmSetWindowAttribute(g_hwnd, 20, &dark, sizeof(dark));
     MARGINS m{ -1 }; DwmExtendFrameIntoClientArea(g_hwnd, &m);
 
     if (!CreateDevice(g_hwnd)) return 1;
@@ -214,8 +195,8 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
     char  statusMsg[128] = "Locked";
     int   genDays      = 30;
     float unlockShake  = 0.f;
-    float unlockAnim   = 0.f;   // 0→1 entrance
-    float contentAnim  = 0.f;   // content fade after unlock
+    float unlockAnim   = 0.f;
+    float contentAnim  = 0.f;
     float statusPulse  = 0.f;
 
     MSG msg{};
@@ -252,24 +233,20 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         ImVec2 wp = ImGui::GetWindowPos();
         ImVec2 ws = ImGui::GetWindowSize();
 
-        // ── title bar ──────────────────────────────────────────────────────
         dl->AddRectFilled(wp, ImVec2(wp.x + ws.x, wp.y + 52), IM_COL32(14, 14, 17, 255));
         dl->AddLine(ImVec2(wp.x, wp.y + 52), ImVec2(wp.x + ws.x, wp.y + 52),
                     IM_COL32(40, 40, 46, 255), 1.f);
 
-        // logo mark
         IconKey(dl, ImVec2(wp.x + 28, wp.y + 26), 11.f, IM_COL32(220, 220, 230, 255));
         dl->AddText(ImVec2(wp.x + 46, wp.y + 17), IM_COL32(235, 235, 240, 255), "CIPHER");
         dl->AddText(ImVec2(wp.x + 108, wp.y + 17), IM_COL32(110, 110, 120, 255), "Admin");
 
-        // close
         ImGui::SetCursorScreenPos(ImVec2(wp.x + ws.x - 44, wp.y + 12));
         ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0,0,0,0));
         ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(1,1,1,0.08f));
         ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(1,1,1,0.14f));
         if (ImGui::Button("##x", ImVec2(28, 28))) PostQuitMessage(0);
         ImGui::PopStyleColor(3);
-        // draw the X
         {
             ImVec2 xc = ImVec2(wp.x + ws.x - 30, wp.y + 26);
             dl->AddLine(ImVec2(xc.x - 6, xc.y - 6), ImVec2(xc.x + 6, xc.y + 6), IM_COL32(180,180,190,255), 1.6f);
@@ -281,7 +258,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         float contentW   = ws.x - pad * 2.f;
 
         if (!unlocked) {
-            // ── unlock card (soft entrance) ────────────────────────────────
             float t = EaseOutBack((std::min)(1.f, unlockAnim));
             float cardW = 380.f, cardH = 240.f;
             float cx = wp.x + (ws.x - cardW) * 0.5f;
@@ -292,7 +268,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
             float a = EaseOutCubic(unlockAnim);
             DrawCard(dl, ImVec2(cx, cy), ImVec2(cx + cardW, cy + cardH), 16.f, a);
 
-            // lock icon
             IconLock(dl, ImVec2(cx + cardW * 0.5f, cy + 38), 16.f,
                      IM_COL32(200, 200, 210, (int)(220 * a)));
 
@@ -330,7 +305,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
             ImGui::PopStyleColor(3);
             ImGui::PopStyleVar();
 
-            // status under card
             float col[4] = { 0.55f, 0.55f, 0.58f, a };
             if (strstr(statusMsg, "Wrong")) { col[0]=0.95f; col[1]=0.32f; col[2]=0.34f; }
             ImVec2 ss = ImGui::CalcTextSize(statusMsg);
@@ -339,7 +313,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
         } else {
             float ca = EaseOutCubic(contentAnim);
 
-            // ── generate card ──────────────────────────────────────────────
             float genH = 112.f;
             ImVec2 ga(wp.x + pad, contentTop);
             ImVec2 gb(wp.x + pad + contentW, contentTop + genH);
@@ -373,6 +346,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
                 License::KeyInfo info;
                 License::ValidateKey(key, info, LicenseStore::RevokedIds(recs));
                 LicenseStore::Record r;
+                r.key = key;
                 r.info = info;
                 r.info.note = genNote;
                 r.info.status = License::Status::Valid;
@@ -386,7 +360,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
             ImGui::PopStyleColor();
             ImGui::PopStyleVar();
 
-            // ── key list card ──────────────────────────────────────────────
             float listTop = contentTop + genH + 14.f;
             float listH   = ws.y - (listTop - wp.y) - 58.f;
             if (listH < 140.f) listH = 140.f;
@@ -407,7 +380,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
             ImGui::PopStyleVar();
             ImGui::PopItemWidth();
 
-            // child for the list — CRITICAL: Dummy grows content size so SetCursorScreenPos is legal
             ImGui::SetCursorScreenPos(ImVec2(la.x + 12, la.y + 44));
             ImGui::BeginChild("##keylist", ImVec2(contentW - 24.f, listH - 56.f), false,
                               ImGuiWindowFlags_NoBackground);
@@ -432,14 +404,11 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
                 ImVec2 rowA(childPos.x, rowY);
                 ImVec2 rowB(childPos.x + contentW - 40.f, rowY + rowH - 8.f);
 
-                // hover lift
                 bool hovered = ImGui::IsMouseHoveringRect(rowA, rowB);
-                float lift = hovered ? 1.f : 0.f;
                 ImU32 rowBg = hovered ? IM_COL32(32, 32, 38, 220) : IM_COL32(24, 24, 28, 180);
                 cdl->AddRectFilled(rowA, rowB, rowBg, 10.f);
                 cdl->AddRect(rowA, rowB, IM_COL32(48, 48, 54, 160), 10.f, 0, 1.f);
 
-                // status pill
                 License::Status st = r.info.status;
                 const char* lab = "Valid";
                 ImU32 pillCol = IM_COL32(80, 200, 120, 255);
@@ -456,7 +425,6 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
                 cdl->AddRectFilled(pillA, pillB, (pillCol & 0x00FFFFFF) | 0x30000000, 6.f);
                 cdl->AddText(ImVec2(pillA.x + 8, pillA.y + 2), pillCol, lab);
 
-                // meta
                 char meta[128], expBuf[32], leftBuf[32];
                 FormatExpiry(r.info.expiresUnix, expBuf, sizeof(expBuf));
                 DaysLeft(r.info.expiresUnix, leftBuf, sizeof(leftBuf));
@@ -465,13 +433,11 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
                 cdl->AddText(ImVec2(pillB.x + 12, rowA.y + 12),
                              IM_COL32(130, 130, 140, 255), meta);
 
-                // key string
                 ImGui::SetCursorScreenPos(ImVec2(rowA.x + 12, rowA.y + 36));
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.88f, 0.88f, 0.90f, 1.f));
                 ImGui::TextUnformatted(r.key.c_str());
                 ImGui::PopStyleColor();
 
-                // actions
                 ImGui::SetCursorScreenPos(ImVec2(rowA.x + (contentW - 40.f) - 148, rowA.y + 10));
                 if (ImGui::SmallButton("Copy"))
                     ImGui::SetClipboardText(r.key.c_str());
@@ -492,27 +458,22 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, LPWSTR, int) {
                     ImGui::TextDisabled("%s", r.info.note.c_str());
                 }
 
-                // *** THIS is the assert kill ***
-                // Advance the content region so the next SetCursorScreenPos is legal
                 ImGui::SetCursorScreenPos(ImVec2(rowA.x, rowA.y + rowH));
-                ImGui::Dummy(ImVec2(1.f, 0.1f));   // grows the child content size
+                ImGui::Dummy(ImVec2(1.f, 0.1f));
 
                 yOff += rowH;
                 shown++;
             }
 
-            // final spacer so scroll feels natural
             ImGui::Dummy(ImVec2(1.f, 8.f));
             ImGui::EndChild();
 
-            // ── footer ─────────────────────────────────────────────────────
             float fy = wp.y + ws.y - 46.f;
             dl->AddRectFilled(ImVec2(wp.x, fy), ImVec2(wp.x + ws.x, wp.y + ws.y),
                               IM_COL32(12, 12, 15, 255));
             dl->AddLine(ImVec2(wp.x + 16, fy), ImVec2(wp.x + ws.x - 16, fy),
                         IM_COL32(38, 38, 44, 255), 1.f);
 
-            // soft pulse on status
             int pulseA = 160 + (int)(40.f * sinf(statusPulse));
             dl->AddText(ImVec2(wp.x + 22, fy + 14),
                         IM_COL32(140, 140, 150, pulseA), statusMsg);
