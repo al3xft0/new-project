@@ -8,7 +8,8 @@
 namespace LicenseStore {
 
 struct Record {
-    License::KeyInfo info;
+    std::string key;
+    KeyInfo info;
 };
 
 bool Load(const std::wstring& path, std::vector<Record>& out);
