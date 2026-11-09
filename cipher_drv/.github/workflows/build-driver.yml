@@ -1,12 +1,8 @@
 name: Build cipher_drv
-
 on:
   push:
-    paths:
-      - 'cipher_drv/**'
-      - '.github/workflows/build-driver.yml'
+    paths: ['cipher_drv/**', '.github/workflows/build-driver.yml']
   workflow_dispatch:
-
 jobs:
   build:
     runs-on: windows-2022
@@ -16,23 +12,22 @@ jobs:
       - name: Install WDK
         shell: pwsh
         run: choco install windowsdriverkit10 --yes --no-progress
-      - name: Detect kit version
+      - name: Kit version
         shell: pwsh
         run: |
-          $includeRoot = "C:\Program Files (x86)\Windows Kits\10\Include"
-          $versions = Get-ChildItem $includeRoot -Directory | Where-Object {
-            Test-Path (Join-Path $_.FullName "km\ntddk.h")
-          } | Sort-Object Name -Descending
-          if (-not $versions) { throw "WDK kernel headers missing" }
-          echo "WDK_VERSION=$($versions[0].Name)" >> $env:GITHUB_ENV
+          $v = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -Directory |
+            Where-Object { Test-Path (Join-Path $_.FullName "km\ntddk.h") } |
+            Sort-Object Name -Descending | Select-Object -First 1
+          if (-not $v) { throw "no WDK" }
+          echo "WDK_VERSION=$($v.Name)" >> $env:GITHUB_ENV
       - name: Build
         shell: pwsh
         run: |
           msbuild cipher_drv\cipher_drv.vcxproj /p:Configuration=Release /p:Platform=x64 `
             /p:WindowsTargetPlatformVersion=$env:WDK_VERSION /p:SignMode=Off /m /v:minimal
-          $sys = Get-ChildItem -Recurse -Filter "cipher_drv.sys" | Select-Object -First 1
-          if (-not $sys) { throw "cipher_drv.sys not produced" }
-          Write-Host "BUILT: $($sys.FullName)"
+          $s = Get-ChildItem -Recurse -Filter cipher_drv.sys | Select-Object -First 1
+          if (-not $s) { throw "no sys" }
+          Write-Host "BUILT $($s.FullName)"
       - uses: actions/upload-artifact@v4
         with:
           name: cipher_drv-sys
