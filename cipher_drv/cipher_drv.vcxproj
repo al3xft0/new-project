@@ -7,7 +7,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <PropertyGroup Label="Globals">
-    <ProjectGuid>{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}</ProjectGuid>
+    <ProjectGuid>{B2C3D4E5-F6A7-8901-BCDE-F12345678901}</ProjectGuid>
     <RootNamespace>cipher_drv</RootNamespace>
     <ProjectName>cipher_drv</ProjectName>
     <WindowsTargetPlatformVersion Condition="'$(WindowsTargetPlatformVersion)' == ''">10.0</WindowsTargetPlatformVersion>
@@ -26,14 +26,13 @@
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
-      <PreprocessorDefinitions>_WIN64;_AMD64_;AMD64;NDEBUG;CIPHER_KERNEL_BUILD;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_WIN64;_AMD64_;AMD64;NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <WarningLevel>Level3</WarningLevel>
       <Optimization>MaxSpeed</Optimization>
       <TreatWarningAsError>false</TreatWarningAsError>
-      <AdditionalIncludeDirectories>$(ProjectDir)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <ExceptionHandling>false</ExceptionHandling>
       <BufferSecurityCheck>false</BufferSecurityCheck>
-      <DisableSpecificWarnings>4083;4005;4996;4117</DisableSpecificWarnings>
+      <DisableSpecificWarnings>4083;4005;4996</DisableSpecificWarnings>
     </ClCompile>
     <Link>
       <EntryPointSymbol>DriverEntry</EntryPointSymbol>
@@ -45,15 +44,6 @@
   </PropertyGroup>
   <ItemGroup>
     <ClCompile Include="src\entry.c" />
-    <ClCompile Include="src\physmem.c" />
-    <ClCompile Include="src\comm.c" />
-    <ClCompile Include="src\commands.c" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="include\shared.h" />
-    <ClInclude Include="include\physmem.h" />
-    <ClInclude Include="include\comm.h" />
-    <ClInclude Include="include\log.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <Target Name="SignDriver" />
