@@ -12,13 +12,12 @@ jobs:
       - name: Install WDK
         shell: pwsh
         run: choco install windowsdriverkit10 --yes --no-progress
-      - name: Kit version
+      - name: Kit
         shell: pwsh
         run: |
           $v = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\Include" -Directory |
             Where-Object { Test-Path (Join-Path $_.FullName "km\ntddk.h") } |
             Sort-Object Name -Descending | Select-Object -First 1
-          if (-not $v) { throw "no WDK" }
           echo "WDK_VERSION=$($v.Name)" >> $env:GITHUB_ENV
       - name: Build
         shell: pwsh
