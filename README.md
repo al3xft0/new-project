@@ -1,5 +1,10 @@
-# cipher section-only
+# cipher commands v1
 
-DriverEntry creates section + ready magic. No thread.
+Section (stable) + deferred worker (2s) + CMD_PING.
 
-Map, then cipher_ping only reads the magic (no submit).
+## Run
+1. GA build cipher_drv.sys
+2. cl /EHsc /O2 cipher_ping/main.cpp /Fe:cipher_ping.exe
+3. kdmapper cipher_drv.sys  → wait for success
+4. Wait ~3 seconds
+5. cipher_ping.exe → *** PING OK ***
